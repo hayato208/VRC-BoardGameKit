@@ -21,6 +21,41 @@ namespace BoardGameKit.Editor
     /// </summary>
     public static class CardTableBuilder
     {
+        [MenuItem("Tools/VRC-BoardGameKit/Save Current Table to Prefabs")]
+        public static void SaveCurrentTableToPrefabs()
+        {
+            GameObject table = GameObject.Find("CardTable_4Players");
+            if (table == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] シーン内に 'CardTable_4Players' が見つかりません。");
+                return;
+            }
+
+            string prefabsDir = "Assets/Projects/Prefabs";
+            if (!Directory.Exists(prefabsDir))
+            {
+                Directory.CreateDirectory(prefabsDir);
+                AssetDatabase.Refresh();
+            }
+
+            // TableUI_Canvas 単体プレハブ
+            Transform uiTransform = table.transform.Find("TableUI_Canvas");
+            if (uiTransform != null)
+            {
+                string uiPrefabPath = $"{prefabsDir}/TableUI_Canvas.prefab";
+                PrefabUtility.SaveAsPrefabAssetAndConnect(uiTransform.gameObject, uiPrefabPath, InteractionMode.UserAction);
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> TableUI_Canvas を Prefab として保存しました: {uiPrefabPath}</color>");
+            }
+
+            // テーブル全体プレハブ
+            string tablePrefabPath = $"{prefabsDir}/CardTable_4Players.prefab";
+            PrefabUtility.SaveAsPrefabAssetAndConnect(table, tablePrefabPath, InteractionMode.UserAction);
+            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> CardTable_4Players 全体を Prefab として保存しました: {tablePrefabPath}</color>");
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+        }
+
         [MenuItem("Tools/VRC-BoardGameKit/Setup 4-Player Table in Scene")]
         public static void BuildTable()
         {
@@ -176,12 +211,12 @@ namespace BoardGameKit.Editor
             }
 
             // 6. 操作パネル (World Space Canvas) の生成
-            // ★Scale: 0.01f ＋ TextMeshPro による高精細描画
+            // ★シーンのインスペクタ調整値を反映 (Scale: 0.02f, Pos Y: 1.0f, Rot X: 35f)
             GameObject canvasObj = new GameObject("TableUI_Canvas");
             canvasObj.transform.SetParent(root.transform, false);
-            canvasObj.transform.localPosition = new Vector3(0, 0.74f, -0.25f);
+            canvasObj.transform.localPosition = new Vector3(0, 1.0f, -0.25f);
             canvasObj.transform.localRotation = Quaternion.Euler(35f, 0, 0);
-            canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+            canvasObj.transform.localScale = new Vector3(0.02f, 0.02f, 0.02f);
 
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
@@ -193,6 +228,7 @@ namespace BoardGameKit.Editor
             canvasCollider.isTrigger = true;
 
             RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
+            canvasRect.anchoredPosition3D = new Vector3(0, 1.0f, -0.25f);
             canvasRect.sizeDelta = new Vector2(50f, 10f);
 
             // 背景パネル
