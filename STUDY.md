@@ -151,4 +151,21 @@ sequenceDiagram
     childObj.transform.localScale = Vector3.one;           // ★ スケールを 1.0 に固定
     ```
 
+---
+
+## 7. VRChat World Space UI でボタンを確実に反応させる3大要件
+
+### ① BoxCollider と VRCUiShape の不可分な関係
+*   VRChatのレーザーポインター（ClientSim / VRコントローラー）は、物理的なコライダーを介してUI当たり判定を行います。
+*   Canvasに `VRCUiShape` を追加するだけでは不十分で、**CanvasのRectTransformと同じサイズ（例: 50×10）の `BoxCollider`（`isTrigger = true`）を明示的にアタッチ** しないと、レーザーが完全にすり抜けてクリックできません。
+
+### ② Udon VM へのイベント伝達（SendCustomEvent 必須原則）
+*   Unity UI Buttonの `onClick` に直接 C# のデリゲートを登録すると、VRChat実行時にUdon VMへイベントが届かず無視されます。
+*   必ず **`UdonBehaviour.SendCustomEvent (string)`** を `onClick` リスナーに登録することで、Udon仮想マシンが安全にメソッドを呼び出せます。
+
+### ③ レイヤーと Navigation の干渉排除
+*   Canvasのレイヤーは `UI` ではなく **`Default` レイヤー（0）** を使用します。
+*   Buttonの `Navigation` を `None` に設定し、プレイヤーの移動キー入力（WASD / スティック）でボタン選択フォーカスが暴走するのを防ぎます。
+
+
 
