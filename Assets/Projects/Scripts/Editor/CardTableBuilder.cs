@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using VRC.SDKBase;
 using VRC.SDK3.Components;
+using VRCStation = VRC.SDK3.Components.VRCStation;
 using BoardGameKit.Core;
 using System.IO;
 
@@ -84,8 +85,7 @@ namespace BoardGameKit.Editor
                 seatObj.transform.localRotation = Quaternion.Euler(0, seatYRotations[i], 0);
 
                 // VRCStation コンポーネントの追加
-                VRC.SDK3.Components.VRCStation station = seatObj.AddComponent<VRC.SDK3.Components.VRCStation>();
-                station.canUseStationFromEnterCollider = true;
+                VRCStation station = seatObj.AddComponent<VRCStation>();
 
                 // SeatController コンポーネントの追加
                 SeatController seatCtrl = seatObj.AddComponent<SeatController>();
