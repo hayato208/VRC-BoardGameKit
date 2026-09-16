@@ -4,6 +4,7 @@ using UnityEngine.UI;
 using VRC.SDKBase;
 using VRC.SDK3.Components;
 using VRCStation = VRC.SDK3.Components.VRCStation;
+using VRCUiShape = VRC.SDK3.Components.VRCUiShape;
 using BoardGameKit.Core;
 using System.IO;
 
@@ -144,36 +145,48 @@ namespace BoardGameKit.Editor
             }
 
             // 6. 操作パネル (World Space Canvas & UI Buttons) の生成
+            // ★適正サイズ（横幅約36cm）に縮小配置
             GameObject canvasObj = new GameObject("TableUI_Canvas");
             canvasObj.transform.SetParent(root.transform);
-            canvasObj.transform.localPosition = new Vector3(0, 0.85f, -0.45f);
-            canvasObj.transform.localRotation = Quaternion.Euler(45f, 0, 0);
-            canvasObj.transform.localScale = new Vector3(0.002f, 0.002f, 0.002f);
+            canvasObj.transform.localPosition = new Vector3(0, 0.74f, -0.25f); // 卓上にコンパクト配置
+            canvasObj.transform.localRotation = Quaternion.Euler(35f, 0, 0);    // 手前に上品な傾斜
+            canvasObj.transform.localScale = new Vector3(0.0008f, 0.0008f, 0.0008f); // 実寸約36cm
 
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             canvasObj.AddComponent<CanvasScaler>();
             canvasObj.AddComponent<GraphicRaycaster>();
+            
+            // ★VRChatのレーザーポインター対応
+            canvasObj.AddComponent<VRCUiShape>();
+
             RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
-            canvasRect.sizeDelta = new Vector3(500, 120);
+            canvasRect.sizeDelta = new Vector2(460, 80);
 
             // 背景パネル
             GameObject panelObj = new GameObject("Panel");
             panelObj.transform.SetParent(canvasObj.transform);
             panelObj.transform.localPosition = Vector3.zero;
             Image panelImg = panelObj.AddComponent<Image>();
-            panelImg.color = new Color(0.1f, 0.1f, 0.1f, 0.85f);
+            panelImg.color = new Color(0.12f, 0.12f, 0.15f, 0.9f);
             RectTransform panelRect = panelObj.GetComponent<RectTransform>();
-            panelRect.sizeDelta = new Vector2(500, 120);
+            panelRect.sizeDelta = new Vector2(460, 80);
 
             TableUIController uiController = root.AddComponent<TableUIController>();
 
-            // ボタン生成ヘルパー
-            CreateButton(canvasObj.transform, "DealBtn", "配る (Deal)", new Vector2(-190, 0), uiController, "OnClickDealButton");
-            CreateButton(canvasObj.transform, "DrawBtn", "引く (Draw)", new Vector2(-95, 0), uiController, "OnClickDrawButton");
-            CreateButton(canvasObj.transform, "ShuffleBtn", "シャッフル", new Vector2(0, 0), uiController, "OnClickShuffleButton");
-            CreateButton(canvasObj.transform, "PassBtn", "パス (Next)", new Vector2(95, 0), uiController, "OnClickAdvanceTurnButton");
-            CreateButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(190, 0), uiController, "OnClickResetButton");
+            // 5つのボタン生成
+            Button dealBtn = CreateButton(canvasObj.transform, "DealBtn", "配る (Deal)", new Vector2(-180, 0));
+            Button drawBtn = CreateButton(canvasObj.transform, "DrawBtn", "引く (Draw)", new Vector2(-90, 0));
+            Button shuffleBtn = CreateButton(canvasObj.transform, "ShuffleBtn", "シャッフル", new Vector2(0, 0));
+            Button passBtn = CreateButton(canvasObj.transform, "PassBtn", "パス (Next)", new Vector2(90, 0));
+            Button resetBtn = CreateButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(180, 0));
+
+            // ★型安全な直結方式でOnClickイベントを確実にアタッチ
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(dealBtn.onClick, uiController.OnClickDealButton);
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(drawBtn.onClick, uiController.OnClickDrawButton);
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(shuffleBtn.onClick, uiController.OnClickShuffleButton);
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(passBtn.onClick, uiController.OnClickAdvanceTurnButton);
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(resetBtn.onClick, uiController.OnClickResetButton);
 
             // 7. TableManager & TableUIController への全自動配線
             SerializedObject soTable = new SerializedObject(tableManager);
@@ -201,18 +214,18 @@ namespace BoardGameKit.Editor
             Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> 4人対戦用カードテーブルの自動セットアップが完了しました！</color>");
         }
 
-        private static void CreateButton(Transform parent, string name, string text, Vector2 pos, TableUIController target, string methodName)
+        private static Button CreateButton(Transform parent, string name, string text, Vector2 pos)
         {
             GameObject btnObj = new GameObject(name);
             btnObj.transform.SetParent(parent);
             btnObj.transform.localPosition = new Vector3(pos.x, pos.y, 0);
 
             Image img = btnObj.AddComponent<Image>();
-            img.color = new Color(0.2f, 0.4f, 0.7f, 1.0f);
+            img.color = new Color(0.18f, 0.45f, 0.8f, 1.0f);
 
             Button btn = btnObj.AddComponent<Button>();
             RectTransform rt = btnObj.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(85, 45);
+            rt.sizeDelta = new Vector2(80, 48);
 
             // テキスト
             GameObject textObj = new GameObject("Text");
@@ -223,15 +236,11 @@ namespace BoardGameKit.Editor
             txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             txt.alignment = TextAnchor.MiddleCenter;
             txt.color = Color.white;
-            txt.fontSize = 14;
+            txt.fontSize = 13;
             RectTransform textRt = textObj.GetComponent<RectTransform>();
-            textRt.sizeDelta = new Vector2(85, 45);
+            textRt.sizeDelta = new Vector2(80, 48);
 
-            // クリックイベントの登録 (UnityEvent)
-            UnityEditor.Events.UnityEventTools.AddPersistentListener(
-                btn.onClick,
-                new UnityEngine.Events.UnityAction((System.Action)System.Delegate.CreateDelegate(typeof(System.Action), target, methodName))
-            );
+            return btn;
         }
     }
 }
