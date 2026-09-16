@@ -131,3 +131,24 @@ sequenceDiagram
     Note over Tray: 他プレイヤーの画面では裏面マテリアルが描画される
 ```
 
+---
+
+## 6. Unity UI自動生成における「スケール逆数膨張（1250倍の罠）」の知見
+
+### ① 現象のメカニズム
+*   Unityにおいて、親オブジェクト（Canvasなど）の `localScale` が極小（例: `0.0008`）に設定されている状態で、新規作成した子オブジェクト（デフォルトで `worldScale = 1`）を以下のように追加すると発生する：
+    ```csharp
+    childObj.transform.SetParent(parentTransform); // worldPositionStays = true（デフォルト）
+    ```
+*   Unityは「子オブジェクトのワールド見た目サイズを維持しよう」と配慮するため、親のスケールで割った値（逆数）を `localScale` に自動設定する：
+    $$\text{子オブジェクトの localScale} = \frac{1}{0.0008} = \mathbf{1250}$$
+*   この結果、子要素（パネル、ボタン、文字）がすべて **1250倍の超巨大看板** としてレンダリングされてしまう。
+
+### ② 正しい対策コード
+*   UI生成時は必ず第二引数に `false`（ローカル座標系維持）を渡し、明示的に `localScale = Vector3.one` を指定する：
+    ```csharp
+    childObj.transform.SetParent(parentTransform, false); // ★ worldPositionStays を無効化
+    childObj.transform.localScale = Vector3.one;           // ★ スケールを 1.0 に固定
+    ```
+
+
