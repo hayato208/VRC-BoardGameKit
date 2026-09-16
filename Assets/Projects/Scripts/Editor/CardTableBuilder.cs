@@ -27,28 +27,28 @@ namespace BoardGameKit.Editor
             // 2. テーブル天板の生成
             GameObject tableTop = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             tableTop.name = "TableTop";
-            tableTop.transform.SetParent(root.transform);
+            tableTop.transform.SetParent(root.transform, false);
             tableTop.transform.localPosition = new Vector3(0, 0.7f, 0);
-            tableTop.transform.localScale = new Vector3(2.2f, 0.05f, 2.2f);
+            tableTop.transform.localScale = new Vector3(2.0f, 0.05f, 2.0f);
 
             // テーブル脚
             GameObject tableLeg = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             tableLeg.name = "TableLeg";
-            tableLeg.transform.SetParent(root.transform);
+            tableLeg.transform.SetParent(root.transform, false);
             tableLeg.transform.localPosition = new Vector3(0, 0.35f, 0);
             tableLeg.transform.localScale = new Vector3(0.3f, 0.35f, 0.3f);
 
             // 3. 山札オブジェクト (Deck)
             GameObject deckObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             deckObj.name = "DeckObject";
-            deckObj.transform.SetParent(root.transform);
+            deckObj.transform.SetParent(root.transform, false);
             deckObj.transform.localPosition = new Vector3(0, 0.75f, 0.15f);
             deckObj.transform.localScale = new Vector3(0.12f, 0.05f, 0.18f);
 
             // 捨て札オブジェクト (Discard)
             GameObject discardObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             discardObj.name = "DiscardArea";
-            discardObj.transform.SetParent(root.transform);
+            discardObj.transform.SetParent(root.transform, false);
             discardObj.transform.localPosition = new Vector3(0.2f, 0.73f, 0.15f);
             discardObj.transform.localScale = new Vector3(0.12f, 0.01f, 0.18f);
 
@@ -67,10 +67,10 @@ namespace BoardGameKit.Editor
 
             Vector3[] seatOffsets = new Vector3[]
             {
-                new Vector3(0, 0, -1.3f),  // 南 (Seat 0: 手前)
-                new Vector3(1.3f, 0, 0),   // 東 (Seat 1: 右)
-                new Vector3(0, 0, 1.3f),   // 北 (Seat 2: 奥)
-                new Vector3(-1.3f, 0, 0)   // 西 (Seat 3: 左)
+                new Vector3(0, 0, -1.2f),  // 南 (Seat 0: 手前)
+                new Vector3(1.2f, 0, 0),   // 東 (Seat 1: 右)
+                new Vector3(0, 0, 1.2f),   // 北 (Seat 2: 奥)
+                new Vector3(-1.2f, 0, 0)   // 西 (Seat 3: 左)
             };
 
             float[] seatYRotations = new float[] { 0f, 270f, 180f, 90f };
@@ -80,7 +80,7 @@ namespace BoardGameKit.Editor
                 // 座席オブジェクト
                 GameObject seatObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 seatObj.name = $"Seat_{i}";
-                seatObj.transform.SetParent(root.transform);
+                seatObj.transform.SetParent(root.transform, false);
                 seatObj.transform.localPosition = seatOffsets[i] + new Vector3(0, 0.25f, 0);
                 seatObj.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
                 seatObj.transform.localRotation = Quaternion.Euler(0, seatYRotations[i], 0);
@@ -94,7 +94,7 @@ namespace BoardGameKit.Editor
 
                 // 手札トレイの生成（座席とテーブルの中間に配置）
                 GameObject trayObj = new GameObject($"HandTray_{i}");
-                trayObj.transform.SetParent(root.transform);
+                trayObj.transform.SetParent(root.transform, false);
                 Vector3 trayPos = Vector3.Lerp(tableTop.transform.localPosition, seatObj.transform.localPosition, 0.55f);
                 trayPos.y = 0.74f;
                 trayObj.transform.localPosition = trayPos;
@@ -106,23 +106,21 @@ namespace BoardGameKit.Editor
                 // 手札スロット（カードMeshRenderer × 5枚分）の生成
                 int slotCount = 5;
                 MeshRenderer[] cardRenderers = new MeshRenderer[slotCount];
-                Transform[] cardAnchors = new Transform[slotCount];
 
-                float cardWidth = 0.1f;
-                float spacing = 0.11f;
+                float cardWidth = 0.08f;
+                float spacing = 0.09f;
                 float startX = -((slotCount - 1) * spacing) / 2.0f;
 
                 for (int c = 0; c < slotCount; c++)
                 {
                     GameObject cardMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
                     cardMesh.name = $"CardSlot_{c}";
-                    cardMesh.transform.SetParent(trayObj.transform);
+                    cardMesh.transform.SetParent(trayObj.transform, false);
                     cardMesh.transform.localPosition = new Vector3(startX + c * spacing, 0, 0);
-                    cardMesh.transform.localScale = new Vector3(cardWidth, 0.005f, 0.14f);
+                    cardMesh.transform.localScale = new Vector3(cardWidth, 0.005f, 0.12f);
                     cardMesh.transform.localRotation = Quaternion.identity;
 
                     cardRenderers[c] = cardMesh.GetComponent<MeshRenderer>();
-                    cardAnchors[c] = cardMesh.transform;
                 }
 
                 // HandTrayController への参照バインド
@@ -145,43 +143,41 @@ namespace BoardGameKit.Editor
             }
 
             // 6. 操作パネル (World Space Canvas & UI Buttons) の生成
-            // ★適正サイズ（横幅約36cm）に縮小配置
+            // ★ワールド空間に自然に収まる横幅約32cmのコンパクト設計
             GameObject canvasObj = new GameObject("TableUI_Canvas");
-            canvasObj.transform.SetParent(root.transform);
-            canvasObj.transform.localPosition = new Vector3(0, 0.74f, -0.25f); // 卓上にコンパクト配置
-            canvasObj.transform.localRotation = Quaternion.Euler(35f, 0, 0);    // 手前に上品な傾斜
-            canvasObj.transform.localScale = new Vector3(0.0008f, 0.0008f, 0.0008f); // 実寸約36cm
+            canvasObj.transform.SetParent(root.transform, false);
+            canvasObj.transform.localPosition = new Vector3(0, 0.74f, -0.25f);
+            canvasObj.transform.localRotation = Quaternion.Euler(35f, 0, 0);
+            canvasObj.transform.localScale = new Vector3(0.0008f, 0.0008f, 0.0008f);
 
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
-            canvasObj.AddComponent<CanvasScaler>();
             canvasObj.AddComponent<GraphicRaycaster>();
-            
-            // ★VRChatのレーザーポインター対応
             canvasObj.AddComponent<VRCUiShape>();
 
             RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
-            canvasRect.sizeDelta = new Vector2(460, 80);
+            canvasRect.sizeDelta = new Vector2(420, 70);
 
-            // 背景パネル
+            // 背景パネル（★localScale = 1 に固定）
             GameObject panelObj = new GameObject("Panel");
-            panelObj.transform.SetParent(canvasObj.transform);
+            panelObj.transform.SetParent(canvasObj.transform, false);
             panelObj.transform.localPosition = Vector3.zero;
+            panelObj.transform.localScale = Vector3.one;
             Image panelImg = panelObj.AddComponent<Image>();
             panelImg.color = new Color(0.12f, 0.12f, 0.15f, 0.9f);
             RectTransform panelRect = panelObj.GetComponent<RectTransform>();
-            panelRect.sizeDelta = new Vector2(460, 80);
+            panelRect.sizeDelta = new Vector2(420, 70);
 
             TableUIController uiController = root.AddComponent<TableUIController>();
 
-            // 5つのボタン生成
-            Button dealBtn = CreateButton(canvasObj.transform, "DealBtn", "配る (Deal)", new Vector2(-180, 0));
-            Button drawBtn = CreateButton(canvasObj.transform, "DrawBtn", "引く (Draw)", new Vector2(-90, 0));
+            // 5つのボタン生成（★localScale = 1 に固定）
+            Button dealBtn = CreateButton(canvasObj.transform, "DealBtn", "配る (Deal)", new Vector2(-160, 0));
+            Button drawBtn = CreateButton(canvasObj.transform, "DrawBtn", "引く (Draw)", new Vector2(-80, 0));
             Button shuffleBtn = CreateButton(canvasObj.transform, "ShuffleBtn", "シャッフル", new Vector2(0, 0));
-            Button passBtn = CreateButton(canvasObj.transform, "PassBtn", "パス (Next)", new Vector2(90, 0));
-            Button resetBtn = CreateButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(180, 0));
+            Button passBtn = CreateButton(canvasObj.transform, "PassBtn", "パス (Next)", new Vector2(80, 0));
+            Button resetBtn = CreateButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(160, 0));
 
-            // ★型安全な直結方式でOnClickイベントを確実にアタッチ
+            // OnClickイベントの直結登録
             UnityEditor.Events.UnityEventTools.AddPersistentListener(dealBtn.onClick, uiController.OnClickDealButton);
             UnityEditor.Events.UnityEventTools.AddPersistentListener(drawBtn.onClick, uiController.OnClickDrawButton);
             UnityEditor.Events.UnityEventTools.AddPersistentListener(shuffleBtn.onClick, uiController.OnClickShuffleButton);
@@ -217,28 +213,30 @@ namespace BoardGameKit.Editor
         private static Button CreateButton(Transform parent, string name, string text, Vector2 pos)
         {
             GameObject btnObj = new GameObject(name);
-            btnObj.transform.SetParent(parent);
+            btnObj.transform.SetParent(parent, false); // ★重要: false でスケール自動膨張(1250倍)を阻止
             btnObj.transform.localPosition = new Vector3(pos.x, pos.y, 0);
+            btnObj.transform.localScale = Vector3.one; // ★Scale: 1.0 に完全固定
 
             Image img = btnObj.AddComponent<Image>();
             img.color = new Color(0.18f, 0.45f, 0.8f, 1.0f);
 
             Button btn = btnObj.AddComponent<Button>();
             RectTransform rt = btnObj.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(80, 48);
+            rt.sizeDelta = new Vector2(72, 44);
 
             // テキスト
             GameObject textObj = new GameObject("Text");
-            textObj.transform.SetParent(btnObj.transform);
+            textObj.transform.SetParent(btnObj.transform, false); // ★重要: false
             textObj.transform.localPosition = Vector3.zero;
+            textObj.transform.localScale = Vector3.one; // ★Scale: 1.0 に完全固定
             Text txt = textObj.AddComponent<Text>();
             txt.text = text;
             txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             txt.alignment = TextAnchor.MiddleCenter;
             txt.color = Color.white;
-            txt.fontSize = 13;
+            txt.fontSize = 12;
             RectTransform textRt = textObj.GetComponent<RectTransform>();
-            textRt.sizeDelta = new Vector2(80, 48);
+            textRt.sizeDelta = new Vector2(72, 44);
 
             return btn;
         }
