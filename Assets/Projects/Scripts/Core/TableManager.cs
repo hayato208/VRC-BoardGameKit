@@ -11,7 +11,7 @@ namespace BoardGameKit.Core
     /// テーブル全体の進行・ネットワーク同期および座席・山札・手札の統括マネージャー。
     /// 2層アーキテクチャに基づき、同期変数を本クラスに集約し、固有ルールはRulePluginBaseに委譲する。
     /// </summary>
-    [UdonBehaviourSyncMode(UdonSyncMode.Manual)]
+    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class TableManager : UdonSharpBehaviour
     {
         [Header("Core Subsystem References")]
@@ -30,27 +30,25 @@ namespace BoardGameKit.Core
 
         // --- 同期変数 ---
         // 現在の手番（座席番号 0〜N-1）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int currentTurnSeatIndex = 0;
 
         // ゲーム進行状態（0: 待機中, 1: 対戦中, 2: 終局）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int gameState = 0;
 
         // 勝者のプレイヤーID（未決着は -1）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int winnerPlayerId = -1;
 
         /// <summary>
         /// 全員に初期カードを一括配布する（ディーラーアクション）
         /// </summary>
-        /// <param name="cardsPerPlayer">1人あたりの配布枚数</param>
         public void DealCardsToAll(int cardsPerPlayer)
         {
             if (deckManager == null || seatControllers == null) return;
             if (!TakeOwnership()) return;
 
-            // 各座席を着席確認しながらカードを配る
             for (int round = 0; round < cardsPerPlayer; round++)
             {
                 for (int s = 0; s < seatControllers.Length; s++)
@@ -71,7 +69,7 @@ namespace BoardGameKit.Core
                 }
             }
 
-            gameState = 1; // プレイ中
+            gameState = 1;
             RequestSerialization();
         }
 
@@ -82,9 +80,8 @@ namespace BoardGameKit.Core
         {
             if (deckManager == null || seatIndex < 0 || seatIndex >= handTrayControllers.Length) return;
 
-            // 山札からカードを取得
             int cardId = deckManager.DrawCard();
-            if (cardId == -1) return; // 山札切れ
+            if (cardId == -1) return;
 
             HandTrayController tray = handTrayControllers[seatIndex];
             if (tray != null)
@@ -92,7 +89,6 @@ namespace BoardGameKit.Core
                 int addedSlot = tray.AddCard(cardId);
                 if (addedSlot == -1)
                 {
-                    // 手札が満杯の場合は山札・捨て札に戻す防護処理
                     deckManager.DiscardCard(cardId);
                 }
             }
@@ -115,36 +111,30 @@ namespace BoardGameKit.Core
                 ? seatControllers[seatIndex].GetSeatedPlayerId()
                 : -1;
 
-            // ルールプラグインによる可否判定（委譲）
             if (activeRulePlugin != null)
             {
                 if (!activeRulePlugin.CanPlayCard(playerId, cardId, slotIndex))
                 {
-                    // ルール違反のためプレイ却下
                     return;
                 }
             }
 
-            // カードを手札から消費
             tray.PlayCard(slotIndex);
 
-            // 捨て札に送る（または場に出す）
             if (deckManager != null)
             {
                 deckManager.DiscardCard(cardId);
             }
 
-            // ルールプラグインの事後フック呼び出し
             if (activeRulePlugin != null)
             {
                 activeRulePlugin.OnCardPlayed(playerId, cardId, slotIndex);
 
-                // 勝利判定のチェック
                 int checkWinner = activeRulePlugin.CheckWinCondition();
                 if (checkWinner != -1)
                 {
                     winnerPlayerId = checkWinner;
-                    gameState = 2; // 終局
+                    gameState = 2;
                     if (TakeOwnership())
                     {
                         RequestSerialization();
@@ -174,7 +164,6 @@ namespace BoardGameKit.Core
 
             RequestSerialization();
 
-            // ルールプラグインへターン開始通知
             if (activeRulePlugin != null)
             {
                 int activePlayerId = seatControllers[currentTurnSeatIndex].GetSeatedPlayerId();
@@ -189,13 +178,11 @@ namespace BoardGameKit.Core
         {
             if (!TakeOwnership()) return;
 
-            // 山札リセット
             if (deckManager != null)
             {
                 deckManager.ResetAndReshuffleDeck();
             }
 
-            // 全手札クリア
             if (handTrayControllers != null)
             {
                 for (int i = 0; i < handTrayControllers.Length; i++)
@@ -219,20 +206,12 @@ namespace BoardGameKit.Core
             RequestSerialization();
         }
 
-        /// <summary>
-        /// 座席着席時の通知ハンドラ
-        /// </summary>
         public void OnPlayerSeated(int seatIndex, int playerId)
         {
-            // 着席時の自動処理（必要に応じて追加）
         }
 
-        /// <summary>
-        /// 離席時の通知ハンドラ
-        /// </summary>
         public void OnPlayerLeftSeat(int seatIndex, int playerId)
         {
-            // 離席プレイヤーの手札回収など（必要に応じて追加）
         }
 
         private bool TakeOwnership()

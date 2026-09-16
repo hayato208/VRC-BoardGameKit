@@ -9,7 +9,7 @@ namespace BoardGameKit.Core
     /// 卓上および手元のUIボタン操作（ドロー、プレイ、配布、リセット等）を
     /// TableManagerおよびDeckManagerに橋渡しするUIコントローラー。
     /// </summary>
-    [UdonBehaviourSyncMode(UdonSyncMode.None)]
+    [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class TableUIController : UdonSharpBehaviour
     {
         [Header("Manager References")]

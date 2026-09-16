@@ -10,7 +10,7 @@ namespace BoardGameKit.Core
     /// 各プレイヤーの手札トレイを管理するクラス。
     /// 手札の追加・プレイおよび「本人のみ表面が見え、他人は裏面に見える」秘匿表示制御を司る。
     /// </summary>
-    [UdonBehaviourSyncMode(UdonSyncMode.Manual)]
+    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class HandTrayController : UdonSharpBehaviour
     {
         [Header("Hand Settings")]
@@ -33,15 +33,15 @@ namespace BoardGameKit.Core
 
         // --- 同期変数 ---
         // 手札のスロットごとのカードID（-1は空きスロット）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int[] handCardIds;
 
         // このトレイを使用しているプレイヤーID（未着席時は -1）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int trayOwnerPlayerId = -1;
 
         // 手札の現在枚数
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int currentCardCount = 0;
 
         private void Start()
@@ -95,15 +95,12 @@ namespace BoardGameKit.Core
         /// <summary>
         /// 手札にカードを追加する
         /// </summary>
-        /// <param name="cardId">追加するカードID</param>
-        /// <returns>追加できた場合はスロット番号、満杯時は -1</returns>
         public int AddCard(int cardId)
         {
             if (cardId < 0) return -1;
             if (currentCardCount >= maxHandCount) return -1;
             if (!TakeOwnership()) return -1;
 
-            // 最初の空きスロットを探索
             int targetSlot = -1;
             for (int i = 0; i < maxHandCount; i++)
             {
@@ -128,11 +125,8 @@ namespace BoardGameKit.Core
         /// <summary>
         /// 指定スロットのカードを手札から出す（消費・プレイ）
         /// </summary>
-        /// <param name="slotIndex">スロット番号</param>
-        /// <returns>出されたカードID（空きの場合は -1）</returns>
         public int PlayCard(int slotIndex)
         {
-            // 防護ガード: インデックス範囲チェック
             if (slotIndex < 0 || slotIndex >= maxHandCount) return -1;
             if (handCardIds == null || handCardIds[slotIndex] == -1) return -1;
             if (!TakeOwnership()) return -1;
@@ -198,17 +192,14 @@ namespace BoardGameKit.Core
 
                 if (cardId == -1)
                 {
-                    // カードがないスロットは非表示
                     mr.enabled = false;
                 }
                 else
                 {
                     mr.enabled = true;
 
-                    // 秘匿表示判定
                     if (isMe)
                     {
-                        // 本人の視点: 表面マテリアルを適用
                         if (cardFrontMaterial != null)
                         {
                             mr.material = cardFrontMaterial;
@@ -216,7 +207,6 @@ namespace BoardGameKit.Core
                     }
                     else
                     {
-                        // 他プレイヤー・観戦者の視点: 裏面マテリアルを適用（覗き見防止）
                         if (cardBackMaterial != null)
                         {
                             mr.material = cardBackMaterial;
@@ -226,9 +216,6 @@ namespace BoardGameKit.Core
             }
         }
 
-        /// <summary>
-        /// オブジェクトの所有権取得
-        /// </summary>
         private bool TakeOwnership()
         {
             if (!Networking.IsOwner(gameObject))

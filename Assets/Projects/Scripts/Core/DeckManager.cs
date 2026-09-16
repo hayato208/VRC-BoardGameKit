@@ -10,7 +10,7 @@ namespace BoardGameKit.Core
     /// 山札（デッキ）と捨て札（ディスカード）の同期管理クラス。
     /// Manual Syncを採用し、状態変更時のみネットワークパケットを発行する。
     /// </summary>
-    [UdonBehaviourSyncMode(UdonSyncMode.Manual)]
+    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class DeckManager : UdonSharpBehaviour
     {
         [Header("Deck Settings")]
@@ -23,23 +23,23 @@ namespace BoardGameKit.Core
 
         // --- 同期変数 ---
         // 山札のカードID配列（インデックス 0 〜 deckTopIndex-1 が山札に残っているカード）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int[] deckCards;
 
         // 現在の山札の残り枚数（末尾インデックス）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int deckTopIndex = 0;
 
         // 捨て札のカードID配列
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int[] discardCards;
 
         // 捨て札の総数
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int discardCount = 0;
 
         // 初期化完了フラグ
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private bool isInitialized = false;
 
         private void Start()
@@ -136,7 +136,6 @@ namespace BoardGameKit.Core
 
             if (discardCards == null || discardCount >= discardCards.Length)
             {
-                // バッファ安全確保
                 return;
             }
 
@@ -157,7 +156,6 @@ namespace BoardGameKit.Core
             int totalActive = deckTopIndex + discardCount;
             if (totalActive <= 0) return;
 
-            // 捨て札を山札の末尾に合流
             for (int i = 0; i < discardCount; i++)
             {
                 deckCards[deckTopIndex + i] = discardCards[i];
@@ -186,7 +184,6 @@ namespace BoardGameKit.Core
         {
             if (deckMeshTransform == null) return;
 
-            // 【★】山札の残り枚数に応じたYスケール変更演出（必要に応じて調整）
             if (defaultCardCount > 0)
             {
                 float ratio = (float)deckTopIndex / defaultCardCount;

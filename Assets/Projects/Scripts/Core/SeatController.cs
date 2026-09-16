@@ -10,7 +10,7 @@ namespace BoardGameKit.Core
     /// VRCStation（椅子）とプレイヤー・手札トレイを連動させるコントローラー。
     /// プレイヤーの着席・離席を検知し、対応する手札トレイの所有権を割り当てる。
     /// </summary>
-    [UdonBehaviourSyncMode(UdonSyncMode.Manual)]
+    [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class SeatController : UdonSharpBehaviour
     {
         [Header("Seat Identity")]
@@ -26,7 +26,7 @@ namespace BoardGameKit.Core
 
         // --- 同期変数 ---
         // 現在着席しているプレイヤーID（空席時は -1）
-        [UdonSynced(UdonSyncMode.Manual)]
+        [UdonSynced]
         private int seatedPlayerId = -1;
 
         /// <summary>
@@ -36,7 +36,6 @@ namespace BoardGameKit.Core
         {
             if (player == null) return;
 
-            // ローカルプレイヤーが着席したときに所有権を取得して同期
             if (player.isLocal)
             {
                 if (TakeOwnership())
@@ -44,13 +43,11 @@ namespace BoardGameKit.Core
                     seatedPlayerId = player.playerId;
                     RequestSerialization();
 
-                    // 手札トレイの所有権を割り当て
                     if (linkedHandTray != null)
                     {
                         linkedHandTray.AssignOwner(player.playerId);
                     }
 
-                    // TableManagerへ通知
                     if (tableManager != null)
                     {
                         tableManager.OnPlayerSeated(seatIndex, player.playerId);
@@ -73,13 +70,11 @@ namespace BoardGameKit.Core
                     seatedPlayerId = -1;
                     RequestSerialization();
 
-                    // 手札トレイの解放
                     if (linkedHandTray != null)
                     {
                         linkedHandTray.ReleaseOwner();
                     }
 
-                    // TableManagerへ通知
                     if (tableManager != null)
                     {
                         tableManager.OnPlayerLeftSeat(seatIndex, player.playerId);
@@ -88,9 +83,6 @@ namespace BoardGameKit.Core
             }
         }
 
-        /// <summary>
-        /// 所有権の取得
-        /// </summary>
         private bool TakeOwnership()
         {
             if (!Networking.IsOwner(gameObject))
