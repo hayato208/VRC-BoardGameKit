@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
 using VRC.SDKBase;
 using VRC.SDK3.Components;
 using VRCStation = VRC.SDK3.Components.VRCStation;
@@ -13,7 +14,10 @@ namespace BoardGameKit.Editor
 {
     /// <summary>
     /// シーン上に4人対戦用のカードゲームテーブル環境を一括自動生成するエディタ拡張。
-    /// VRChatのWorld Space UI仕様（VRCUiShape + BoxCollider + SendCustomEvent）に完全準拠。
+    /// ・TextMeshPro (TMP) による文字潰れのない高精細UI
+    /// ・山札・手札への3D直接インタラクト (Udon Interact)
+    /// ・VRChatのWorld Space UI仕様 (VRCUiShape + BoxCollider + SendCustomEvent)
+    /// に完全準拠。
     /// </summary>
     public static class CardTableBuilder
     {
@@ -39,7 +43,7 @@ namespace BoardGameKit.Editor
             tableLeg.transform.localPosition = new Vector3(0, 0.35f, 0);
             tableLeg.transform.localScale = new Vector3(0.3f, 0.35f, 0.3f);
 
-            // 3. 山札オブジェクト (Deck)
+            // 3. 山札オブジェクト (Deck) - ★3D直接インタラクト対応
             GameObject deckObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             deckObj.name = "DeckObject";
             deckObj.transform.SetParent(root.transform, false);
@@ -50,7 +54,7 @@ namespace BoardGameKit.Editor
             GameObject discardObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             discardObj.name = "DiscardArea";
             discardObj.transform.SetParent(root.transform, false);
-            discardObj.transform.localPosition = new Vector3(0.2f, 0.73f, 0.15f);
+            discardObj.transform.localPosition = new Vector3(0.22f, 0.73f, 0.15f);
             discardObj.transform.localScale = new Vector3(0.12f, 0.01f, 0.18f);
 
             // 4. コアコンポーネントのアタッチ (DeckManager, TableManager, TableUIController)
@@ -103,7 +107,7 @@ namespace BoardGameKit.Editor
                 Vector3 trayPos = Vector3.Lerp(tableTop.transform.localPosition, seatObj.transform.localPosition, 0.55f);
                 trayPos.y = 0.74f;
                 trayObj.transform.localPosition = trayPos;
-                trayObj.transform.localRotation = Quaternion.Euler(20f, seatYRotations[i], 0);
+                trayObj.transform.localRotation = Quaternion.Euler(25f, seatYRotations[i], 0); // 手前傾斜
 
                 HandTrayController trayCtrl = trayObj.AddComponent<HandTrayController>();
                 trays[i] = trayCtrl;
@@ -126,6 +130,20 @@ namespace BoardGameKit.Editor
                     cardMesh.transform.localRotation = Quaternion.identity;
 
                     cardRenderers[c] = cardMesh.GetComponent<MeshRenderer>();
+
+                    // ★3D直接インタラクト: 手札カードをクリックで場に出せるようにする
+                    CardSlotController slotCtrl = cardMesh.AddComponent<CardSlotController>();
+                    slotCtrl.slotIndex = c;
+                    slotCtrl.seatIndex = i;
+                    slotCtrl.handTray = trayCtrl;
+                    slotCtrl.tableManager = tableManager;
+
+                    // VRChatのインタラクト表示名設定
+                    UdonBehaviour udonSlot = cardMesh.GetComponent<UdonBehaviour>();
+                    if (udonSlot != null)
+                    {
+                        udonSlot.interactText = "カードを出す (Play)";
+                    }
                 }
 
                 // HandTrayController への参照バインド
@@ -147,26 +165,35 @@ namespace BoardGameKit.Editor
                 soSeat.ApplyModifiedProperties();
             }
 
+            // ★山札への3D直接インタラクト設定 (DeckInteractHandler)
+            DeckInteractHandler deckHandler = deckObj.AddComponent<DeckInteractHandler>();
+            deckHandler.tableManager = tableManager;
+            deckHandler.seatControllers = seats;
+            UdonBehaviour udonDeck = deckObj.GetComponent<UdonBehaviour>();
+            if (udonDeck != null)
+            {
+                udonDeck.interactText = "カードを引く (Draw)";
+            }
+
             // 6. 操作パネル (World Space Canvas) の生成
-            // ★Scale: 0.01f に完全調整
+            // ★Scale: 0.01f ＋ TextMeshPro による高精細描画
             GameObject canvasObj = new GameObject("TableUI_Canvas");
             canvasObj.transform.SetParent(root.transform, false);
             canvasObj.transform.localPosition = new Vector3(0, 0.74f, -0.25f);
             canvasObj.transform.localRotation = Quaternion.Euler(35f, 0, 0);
-            canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f); // ★Scale 0.01
+            canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
 
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
             canvasObj.AddComponent<GraphicRaycaster>();
+            canvasObj.AddComponent<VRCUiShape>();
 
-            // ★VRChatの必須コンポーネント: VRCUiShape ＋ BoxCollider
-            VRCUiShape uiShape = canvasObj.AddComponent<VRCUiShape>();
             BoxCollider canvasCollider = canvasObj.AddComponent<BoxCollider>();
-            canvasCollider.size = new Vector3(50f, 10f, 1f); // CanvasのRectTransform(50x10)に一致
+            canvasCollider.size = new Vector3(50f, 10f, 1f);
             canvasCollider.isTrigger = true;
 
             RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
-            canvasRect.sizeDelta = new Vector2(50f, 10f); // 0.01倍で 50cm x 10cm
+            canvasRect.sizeDelta = new Vector2(50f, 10f);
 
             // 背景パネル
             GameObject panelObj = new GameObject("Panel");
@@ -174,19 +201,19 @@ namespace BoardGameKit.Editor
             panelObj.transform.localPosition = Vector3.zero;
             panelObj.transform.localScale = Vector3.one;
             Image panelImg = panelObj.AddComponent<Image>();
-            panelImg.color = new Color(0.12f, 0.12f, 0.15f, 0.9f);
-            panelImg.raycastTarget = false; // 背景はクリック透過
+            panelImg.color = new Color(0.12f, 0.12f, 0.16f, 0.92f);
+            panelImg.raycastTarget = false;
             RectTransform panelRect = panelObj.GetComponent<RectTransform>();
             panelRect.sizeDelta = new Vector2(50f, 10f);
 
-            // 5つのボタン生成（Scale 0.01基準: 幅8.5, 高さ7）
-            Button dealBtn = CreateButton(canvasObj.transform, "DealBtn", "配る", new Vector2(-19f, 0), new Vector2(8.5f, 7f));
-            Button drawBtn = CreateButton(canvasObj.transform, "DrawBtn", "引く", new Vector2(-9.5f, 0), new Vector2(8.5f, 7f));
-            Button shuffleBtn = CreateButton(canvasObj.transform, "ShuffleBtn", "混ぜる", new Vector2(0f, 0), new Vector2(8.5f, 7f));
-            Button passBtn = CreateButton(canvasObj.transform, "PassBtn", "パス", new Vector2(9.5f, 0), new Vector2(8.5f, 7f));
-            Button resetBtn = CreateButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(19f, 0), new Vector2(8.5f, 7f));
+            // 5つのボタン生成 (TextMeshProUGUI 版)
+            Button dealBtn = CreateTMPButton(canvasObj.transform, "DealBtn", "配る", new Vector2(-19f, 0), new Vector2(8.5f, 7f));
+            Button drawBtn = CreateTMPButton(canvasObj.transform, "DrawBtn", "引く", new Vector2(-9.5f, 0), new Vector2(8.5f, 7f));
+            Button shuffleBtn = CreateTMPButton(canvasObj.transform, "ShuffleBtn", "混ぜる", new Vector2(0f, 0), new Vector2(8.5f, 7f));
+            Button passBtn = CreateTMPButton(canvasObj.transform, "PassBtn", "パス", new Vector2(9.5f, 0), new Vector2(8.5f, 7f));
+            Button resetBtn = CreateTMPButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(19f, 0), new Vector2(8.5f, 7f));
 
-            // ★VRChat公式推奨: UdonBehaviour.SendCustomEvent による確実なイベントルーティング
+            // UdonBehaviour.SendCustomEvent 直結登録
             if (udonUI != null)
             {
                 UnityEditor.Events.UnityEventTools.AddStringPersistentListener(dealBtn.onClick, udonUI.SendCustomEvent, "OnClickDealButton");
@@ -194,15 +221,6 @@ namespace BoardGameKit.Editor
                 UnityEditor.Events.UnityEventTools.AddStringPersistentListener(shuffleBtn.onClick, udonUI.SendCustomEvent, "OnClickShuffleButton");
                 UnityEditor.Events.UnityEventTools.AddStringPersistentListener(passBtn.onClick, udonUI.SendCustomEvent, "OnClickAdvanceTurnButton");
                 UnityEditor.Events.UnityEventTools.AddStringPersistentListener(resetBtn.onClick, udonUI.SendCustomEvent, "OnClickResetButton");
-            }
-            else
-            {
-                // フォールバック
-                UnityEditor.Events.UnityEventTools.AddPersistentListener(dealBtn.onClick, uiController.OnClickDealButton);
-                UnityEditor.Events.UnityEventTools.AddPersistentListener(drawBtn.onClick, uiController.OnClickDrawButton);
-                UnityEditor.Events.UnityEventTools.AddPersistentListener(shuffleBtn.onClick, uiController.OnClickShuffleButton);
-                UnityEditor.Events.UnityEventTools.AddPersistentListener(passBtn.onClick, uiController.OnClickAdvanceTurnButton);
-                UnityEditor.Events.UnityEventTools.AddPersistentListener(resetBtn.onClick, uiController.OnClickResetButton);
             }
 
             // 7. TableManager & TableUIController への全自動配線
@@ -228,10 +246,10 @@ namespace BoardGameKit.Editor
             soUI.ApplyModifiedProperties();
 
             Selection.activeGameObject = root;
-            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> VRChat対応UI(Scale 0.01, BoxCollider, SendCustomEvent)のセットアップが完了しました！</color>");
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> TextMeshPro ＆ 3D直接インタラクト対応テーブル環境のセットアップが完了しました！</color>");
         }
 
-        private static Button CreateButton(Transform parent, string name, string text, Vector2 pos, Vector2 size)
+        private static Button CreateTMPButton(Transform parent, string name, string text, Vector2 pos, Vector2 size)
         {
             GameObject btnObj = new GameObject(name);
             btnObj.transform.SetParent(parent, false);
@@ -239,30 +257,29 @@ namespace BoardGameKit.Editor
             btnObj.transform.localScale = Vector3.one;
 
             Image img = btnObj.AddComponent<Image>();
-            img.color = new Color(0.18f, 0.45f, 0.8f, 1.0f);
-            img.raycastTarget = true; // クリック判定
+            img.color = new Color(0.18f, 0.45f, 0.85f, 1.0f);
+            img.raycastTarget = true;
 
             Button btn = btnObj.AddComponent<Button>();
-            btn.navigation = new Navigation { mode = Navigation.Mode.None }; // 誤作動防止
+            btn.navigation = new Navigation { mode = Navigation.Mode.None };
 
             RectTransform rt = btnObj.GetComponent<RectTransform>();
             rt.sizeDelta = size;
 
-            // テキスト
-            GameObject textObj = new GameObject("Text");
+            // ★TextMeshProUGUI による高精細ベクターテキスト
+            GameObject textObj = new GameObject("Text (TMP)");
             textObj.transform.SetParent(btnObj.transform, false);
             textObj.transform.localPosition = Vector3.zero;
             textObj.transform.localScale = Vector3.one;
-            Text txt = textObj.AddComponent<Text>();
-            txt.text = text;
-            txt.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            txt.alignment = TextAnchor.MiddleCenter;
-            txt.color = Color.white;
-            txt.fontSize = 2; // Scale 0.01環境に適したフォントサイズ
-            txt.resizeTextForBestFit = true;
-            txt.resizeTextMinSize = 1;
-            txt.resizeTextMaxSize = 4;
-            txt.raycastTarget = false;
+
+            TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
+            tmp.text = text;
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = Color.white;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 2f;
+            tmp.fontSizeMax = 5f;
+            tmp.raycastTarget = false;
 
             RectTransform textRt = textObj.GetComponent<RectTransform>();
             textRt.sizeDelta = size;
