@@ -97,3 +97,37 @@ public class CustomRulePlugin : UdonSharpBehaviour
 *   **効果**:
     *   プロンプトの入出力が **500〜1,000 トークン以内** に収まる。
     *   Local LLM（Qwen2.5-CoderやDeepSeek系）でもハルシネーションを起こさず、100%正確なU#ロジックを生成できる。
+
+---
+
+## 5. コアクラスの責務分割と同期シーケンス（2層アーキテクチャの実践）
+
+### ① クラス責務の対応表（SOLID原則）
+| クラス | 分類サフィックス | 責務（単一責任） | 同期モード |
+| :--- | :--- | :--- | :--- |
+| **`DeckManager`** | Manager | 山札・捨て札配列の保持、Fisher-Yatesシャッフル、ドロー・リセット同期 | Manual Sync |
+| **`HandTrayController`** | Controller | トレイ上の手札スロット管理、ローカル視点判定による表面/裏面マテリアル切替 | Manual Sync |
+| **`SeatController`** | Controller | `VRCStation` と連動した着席・離席検知、座席と手札トレイの所有権バインド | Manual Sync |
+| **`TableManager`** | Manager | ゲーム全体の進行（手番、勝敗、フェーズ）、各コントローラーの統括 | Manual Sync |
+| **`TableUIController`** | Controller / UI | 卓上・手元ボタン（Draw, Shuffle, Deal, Pass）からManagerへの安全な橋渡し | None (ローカル) |
+| **`RulePluginBase`** | Plugin | オリジナルルール固有の判定（CanPlayCard, OnCardPlayed, CheckWinCondition） | None (ロジック委譲) |
+
+### ② カードを引く（ドロー）時の同期シーケンス
+```mermaid
+sequenceDiagram
+    actor Player as 着席プレイヤー (Seat 0)
+    participant UI as TableUIController
+    participant Table as TableManager
+    participant Deck as DeckManager
+    participant Tray as HandTrayController (Seat 0)
+
+    Player->>UI: 「Draw」ボタンを押下
+    UI->>Table: DrawCardForPlayer(0)
+    Table->>Deck: DrawCard() [所有権取得 ➜ deckTopIndex減算]
+    Deck-->>Table: 引いたカードID (例: 14)
+    Table->>Tray: AddCard(14) [空きスロットに格納]
+    Tray-->>Tray: UpdateCardVisuals() [本人視点: 表面マテリアル表示]
+    Note over Deck,Tray: RequestSerialization() で全員に同期伝播
+    Note over Tray: 他プレイヤーの画面では裏面マテリアルが描画される
+```
+
