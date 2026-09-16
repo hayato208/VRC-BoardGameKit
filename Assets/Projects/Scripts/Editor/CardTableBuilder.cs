@@ -274,11 +274,12 @@ namespace BoardGameKit.Editor
 
             TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
 
-            // ★日本語フォント (NotoSansJP-Medium SDF) を割り当て
+            // ★日本語フォント (NotoSansJP-Medium SDF) およびそのMaterialを割り当て
             TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
             if (jpFont != null)
             {
                 tmp.font = jpFont;
+                tmp.fontSharedMaterial = jpFont.material; // ★マテリアルエラー防止の決定打
             }
 
             tmp.text = text;
