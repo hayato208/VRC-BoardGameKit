@@ -97,3 +97,153 @@ public class CustomRulePlugin : UdonSharpBehaviour
 *   **効果**:
     *   プロンプトの入出力が **500〜1,000 トークン以内** に収まる。
     *   Local LLM（Qwen2.5-CoderやDeepSeek系）でもハルシネーションを起こさず、100%正確なU#ロジックを生成できる。
+
+---
+
+## 5. コアクラスの責務分割と同期シーケンス（2層アーキテクチャの実践）
+
+### ① クラス責務の対応表（SOLID原則）
+| クラス | 分類サフィックス | 責務（単一責任） | 同期モード |
+| :--- | :--- | :--- | :--- |
+| **`DeckManager`** | Manager | 山札・捨て札配列の保持、Fisher-Yatesシャッフル、ドロー・リセット同期 | Manual Sync |
+| **`HandTrayController`** | Controller | トレイ上の手札スロット管理、ローカル視点判定による表面/裏面マテリアル切替 | Manual Sync |
+| **`SeatController`** | Controller | `VRCStation` と連動した着席・離席検知、座席と手札トレイの所有権バインド | Manual Sync |
+| **`TableManager`** | Manager | ゲーム全体の進行（手番、勝敗、フェーズ）、各コントローラーの統括 | Manual Sync |
+| **`TableUIController`** | Controller / UI | 卓上・手元ボタン（Draw, Shuffle, Deal, Pass）からManagerへの安全な橋渡し | None (ローカル) |
+| **`RulePluginBase`** | Plugin | オリジナルルール固有の判定（CanPlayCard, OnCardPlayed, CheckWinCondition） | None (ロジック委譲) |
+
+### ② カードを引く（ドロー）時の同期シーケンス
+```mermaid
+sequenceDiagram
+    actor Player as 着席プレイヤー (Seat 0)
+    participant UI as TableUIController
+    participant Table as TableManager
+    participant Deck as DeckManager
+    participant Tray as HandTrayController (Seat 0)
+
+    Player->>UI: 「Draw」ボタンを押下
+    UI->>Table: DrawCardForPlayer(0)
+    Table->>Deck: DrawCard() [所有権取得 ➜ deckTopIndex減算]
+    Deck-->>Table: 引いたカードID (例: 14)
+    Table->>Tray: AddCard(14) [空きスロットに格納]
+    Tray-->>Tray: UpdateCardVisuals() [本人視点: 表面マテリアル表示]
+    Note over Deck,Tray: RequestSerialization() で全員に同期伝播
+    Note over Tray: 他プレイヤーの画面では裏面マテリアルが描画される
+```
+
+---
+
+## 6. Unity UI自動生成における「スケール逆数膨張（1250倍の罠）」の知見
+
+### ① 現象のメカニズム
+*   Unityにおいて、親オブジェクト（Canvasなど）の `localScale` が極小（例: `0.0008`）に設定されている状態で、新規作成した子オブジェクト（デフォルトで `worldScale = 1`）を以下のように追加すると発生する：
+    ```csharp
+    childObj.transform.SetParent(parentTransform); // worldPositionStays = true（デフォルト）
+    ```
+*   Unityは「子オブジェクトのワールド見た目サイズを維持しよう」と配慮するため、親のスケールで割った値（逆数）を `localScale` に自動設定する：
+    $$\text{子オブジェクトの localScale} = \frac{1}{0.0008} = \mathbf{1250}$$
+*   この結果、子要素（パネル、ボタン、文字）がすべて **1250倍の超巨大看板** としてレンダリングされてしまう。
+
+### ② 正しい対策コード
+*   UI生成時は必ず第二引数に `false`（ローカル座標系維持）を渡し、明示的に `localScale = Vector3.one` を指定する：
+    ```csharp
+    childObj.transform.SetParent(parentTransform, false); // ★ worldPositionStays を無効化
+    childObj.transform.localScale = Vector3.one;           // ★ スケールを 1.0 に固定
+    ```
+
+---
+
+## 7. VRChat World Space UI でボタンを確実に反応させる3大要件
+
+### ① BoxCollider と VRCUiShape の不可分な関係
+*   VRChatのレーザーポインター（ClientSim / VRコントローラー）は、物理的なコライダーを介してUI当たり判定を行います。
+*   Canvasに `VRCUiShape` を追加するだけでは不十分で、**CanvasのRectTransformと同じサイズ（例: 50×10）の `BoxCollider`（`isTrigger = true`）を明示的にアタッチ** しないと、レーザーが完全にすり抜けてクリックできません。
+
+### ② Udon VM へのイベント伝達（SendCustomEvent 必須原則）
+*   Unity UI Buttonの `onClick` に直接 C# のデリゲートを登録すると、VRChat実行時にUdon VMへイベントが届かず無視されます。
+*   必ず **`UdonBehaviour.SendCustomEvent (string)`** を `onClick` リスナーに登録することで、Udon仮想マシンが安全にメソッドを呼び出せます。
+
+### ③ レイヤーと Navigation の干渉排除
+*   Canvasのレイヤーは `UI` ではなく **`Default` レイヤー（0）** を使用します。
+*   Buttonの `Navigation` を `None` に設定し、プレイヤーの移動キー入力（WASD / スティック）でボタン選択フォーカスが暴走するのを防ぎます。
+
+---
+
+## 8. 3D直接インタラクト (Udon Interact) と TextMeshPro (SDF) によるVRネイティブ設計
+
+### ① TextMeshPro (SDF) がVRで必須である理由
+*   Unity標準の `Text` (Legacy UI) はビットマップフォントであるため、Scaleが小さい環境（0.01等）ではサンプリング解像度が極端に低下し、文字がモザイク状に潰れてしまう。
+*   **`TextMeshProUGUI` (TMP)** は **SDF (Signed Distance Field)** ベクター技術を採用しており、どれだけ縮小しても、VR視点でどれだけ至近距離から覗き込んでも輪郭が絶対に滲まず・潰れず、毛筆のようにシャープに描画される。
+
+### ② 2Dキャンバスボタン vs 3D直接インタラクトのハイブリッド構成
+*   **3D直接インタラクト（`UdonBehaviour.Interact()`）**:
+    *   山札（`DeckObject`）に視線を合わせて「Useキー（左クリック/トリガー）」を押すと即座にドロー（`DeckInteractHandler`）。
+    *   手札のカード（`CardSlot`）を直接クリックするとそのカードが場に出る（`CardSlotController`）。
+    *   VRChatのホバーポップアップ（`interactText = "カードを引く (Draw)"`）が表示され、直感的で圧倒的な没入感を実現。
+*   **卓上UIパネルとの両立**:
+    *   手元で直接オモチャのように触る操作（3D）と、全員に配る・リセットするなどの進行操作（UIパネル）を綺麗に共存させる。
+
+---
+
+## 9. TextMeshPro における日本語フォントアセット（Noto Sans JP SDF）の自動運用
+
+### ① デフォルトフォント（LiberationSans）の日本語欠落問題
+*   TextMeshProに標準添付されている `LiberationSans SDF` は欧文フォントであり、日本語グリフ（ひらがな・カタカナ・漢字）が含まれていないため、日本語テキストが空白（または豆腐文字）になる。
+*   日本語を正しく描画するには、Googleフォントの `Noto Sans JP` 等から生成された専用の **TMP_FontAsset（`.asset`）** を指定する必要がある。
+
+### ② エディタスクリプトからの日本語フォント自動バインド
+*   手動でInspectorにドラッグ＆ドロップする手間を省くため、`AssetDatabase.LoadAssetAtPath<TMP_FontAsset>` を用いて `Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset` を動的に取得・アタッチする。
+*   これにより、テーブル自動生成時にすべてのボタンのテキストに日本語SDFフォントが100%自動適用され、ユーザーの手作業ゼロで美麗な日本語UIが即座に立ち上がる。
+
+---
+
+## 10. TextMeshPro スクリプト生成における font と fontSharedMaterial の分離バグ
+
+### ① 現象のメカニズム
+*   C#コードから `AddComponent<TextMeshProUGUI>()` を実行し、直後に `tmp.font = jpFont;` のみ代入すると、内部の `m_sharedMaterial`（フォントマテリアル）が自動更新されず、デフォルトの欧文マテリアル（または未設定）のまま残留する。
+*   この結果、フォントアセット（NotoSansJP）のアトラス画像とマテリアルのシェーダー設定が乖離し、**Unity画面上でピンク色のマテリアルエラー（または文字の消失）** が発生する。
+
+### ② Metafes2025 の実績設計に学ぶ解決法
+*   元プロジェクト `Metafes2025` の `PlayerNameTexts` のYAMLシリアライズ構造を解析：
+    ```yaml
+    m_fontAsset: {fileID: 11400000, guid: c3e0f6a222f5ced40b7452227dd9d953, type: 2}
+    m_sharedMaterial: {fileID: 1506394687846326273, guid: c3e0f6a222f5ced40b7452227dd9d953, type: 2}
+    ```
+*   コード側でも `font` のみならず **`fontSharedMaterial`** を明示代入することで、マテリアルエラーを100%遮断する：
+    ```csharp
+    tmp.font = jpFont;
+    tmp.fontSharedMaterial = jpFont.material; // ★不可欠な同期処理
+    ```
+
+---
+
+## 11. UnityのGUID参照メカニズムと `.meta` ファイル再生成の原則
+
+### ① UnityにおけるGUIDの役割
+*   Unityはファイルパスではなく、すべてのファイル・フォルダに付与される32桁の16進数文字列 **`guid`** をキーとしてアセット間の依存関係（マテリアル ⇄ シェーダー、プレハブ ⇄ スクリプト等）を内部管理している。
+*   このGUIDは各アセットと同階層の `.meta` ファイル内にYAML形式で保存されている。
+
+### ② プロジェクト間のファイル移植で起きるトラブル
+*   別プロジェクトから単体ファイル（テクスチャ、フォント、モデル等）を移行する際に、旧プロジェクトの `.meta` をそのまま持ち込むと以下の問題が発生する：
+    1. **Missing Reference (参照の幽霊化)**: 旧プロジェクト固有の環境設定や、移行先に存在しない外部アセットのGUIDを参照し続け、Inspector上で `Missing` やシェーダーのピンクエラー（マテリアル不整合）を引き起こす。
+    2. **GUIDの重複・衝突**: 移行先で同じGUIDを持つ別のアセットが存在した場合、アセットデータベースのインデックスが破損するリスクがある。
+
+### ③ `.meta` 再生成（作り直し）の運用ルール
+*   **個別アセットの移植時**: 外部プロジェクトから持ち込むファイルは、`.meta` を削除した状態で移行先プロジェクトの `Assets/` 内に配置する。これにより、移行先Unityエディタのインポーターがその環境に合わせた最適な `.meta`（新規GUIDおよびインポーター設定）を安全に自動再生成する。
+*   **パッケージ配布時（例外）**: `.unitypackage` や VPM (VRChat Package Manager) を通じた配布時は、パッケージ内の相互参照（Prefabが参照するスクリプトやマテリアル）を維持するため、同一パッケージ内の `.meta` は一括して管理・保持する。
+
+---
+
+## 12. 卓上UIの視認性パラメータ（実機インスペクタ最適値）とPrefab化
+
+### ① 実機視認性に基づくUIパラメータ
+*   卓上のボタンUI（World Space Canvas）は、着席時のプレイヤー目線（高さ約1.2m〜1.4m）から見下ろす形で自然に操作できるように調整された：
+    *   **Scale**: `(0.02, 0.02, 0.02)`（微小サイズによる潰れを防ぎ、ボタン文字が明瞭に視認できる絶妙なスケール）
+    *   **LocalPosition**: `(0, 1.0f, -0.25f)`（テーブル面 0.7m より少し上、プレイヤー寄りにチルト配置）
+    *   **LocalRotation**: `Quaternion.Euler(35f, 0, 0)`（見下ろし角35度で光の反射や視野角を最適化）
+    *   **Collider Size**: `(50, 10, 1)`（CanvasのRectTransformと完全一致させ、Raycast判定を確保）
+
+### ② シーン調整からパッケージPrefabへの保存パイプライン
+*   Unityエディタのシーン上で微調整した結果をワンクリックでパッケージ資産（`Assets/Projects/Prefabs/`）に昇格させるため、`CardTableBuilder` に `[Tools] -> [VRC-BoardGameKit] -> [Save Current Table to Prefabs]` を新設。
+*   これにより、コード生成ロジックと実機Prefabの両輪で最新のインスペクタ状態を永続化できる。
+

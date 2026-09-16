@@ -1,0 +1,17 @@
+{
+  "name": "com.vrctool.boardgamekit",
+  "version": "0.1.0",
+  "displayName": "VRC-BoardGameKit",
+  "description": "VRChat向け汎用ボードゲーム・カードゲーム制作パッケージ。サンドボックス基盤とLocal LLM向けルール拡張フックを提供。",
+  "unity": "2022.3",
+  "author": {
+    "name": "GameCreator"
+  },
+  "dependencies": {},
+  "vrc-get": {
+    "dependencies": {
+      "com.vrchat.worlds": ">=3.5.0",
+      "com.vrchat.core.vpm-resolver": ">=0.1.26"
+    }
+  }
+}
