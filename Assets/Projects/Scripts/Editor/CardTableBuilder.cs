@@ -84,7 +84,7 @@ namespace BoardGameKit.Editor
                 seatObj.transform.localRotation = Quaternion.Euler(0, seatYRotations[i], 0);
 
                 // VRCStation コンポーネントの追加
-                VRCStation station = seatObj.AddComponent<VRCStation>();
+                VRC.SDK3.Components.VRCStation station = seatObj.AddComponent<VRC.SDK3.Components.VRCStation>();
                 station.canUseStationFromEnterCollider = true;
 
                 // SeatController コンポーネントの追加
