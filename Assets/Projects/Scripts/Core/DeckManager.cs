@@ -80,11 +80,16 @@ namespace BoardGameKit.Core
         /// </summary>
         public void ShuffleDeck()
         {
-            if (deckTopIndex <= 0) return;
+            if (deckTopIndex <= 0)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] 山札が空のためシャッフルできません。");
+                return;
+            }
             if (!TakeOwnership()) return;
 
             ShuffleInternal();
             RequestSerialization();
+            Debug.Log($"[VRC-BoardGameKit] 山札をシャッフルしました。（残り: {deckTopIndex}枚）");
         }
 
         /// <summary>
@@ -109,9 +114,15 @@ namespace BoardGameKit.Core
         /// <returns>引いたカードID（山札切れの場合は -1）</returns>
         public int DrawCard()
         {
+            if (deckCards == null || !isInitialized)
+            {
+                InitializeDeck(defaultCardCount);
+            }
+
             // 防護ガード: 山札切れ
             if (deckTopIndex <= 0)
             {
+                Debug.LogWarning("[VRC-BoardGameKit] 山札が切れています（残り0枚）。");
                 return -1;
             }
 
@@ -123,6 +134,7 @@ namespace BoardGameKit.Core
             RequestSerialization();
             UpdateVisuals();
 
+            Debug.Log($"[VRC-BoardGameKit] カードを引きました: Card ID {drawnCardId} （山札残り: {deckTopIndex}枚）");
             return drawnCardId;
         }
 
@@ -144,6 +156,7 @@ namespace BoardGameKit.Core
 
             RequestSerialization();
             UpdateVisuals();
+            Debug.Log($"[VRC-BoardGameKit] カードを捨て札に追加しました: Card ID {cardId} （捨て札計: {discardCount}枚）");
         }
 
         /// <summary>
@@ -167,6 +180,7 @@ namespace BoardGameKit.Core
             ShuffleInternal();
             RequestSerialization();
             UpdateVisuals();
+            Debug.Log($"[VRC-BoardGameKit] 山札と捨て札をリセット・再シャッフルしました。（山札計: {deckTopIndex}枚）");
         }
 
         /// <summary>

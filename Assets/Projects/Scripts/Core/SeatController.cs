@@ -24,6 +24,10 @@ namespace BoardGameKit.Core
         [Tooltip("全体進行を司るTableManagerへの参照")]
         [SerializeField] private TableManager tableManager;
 
+        [Header("Personal UI (Hand Tray UI)")]
+        [Tooltip("着席時のみ手元に表示する個人用操作パネル（Canvas等のGameObject）")]
+        [SerializeField] private GameObject personalUIPanel;
+
         [Header("Visual Feedback (Optional)")]
         [Tooltip("着席・空席時に色を変更するRenderer（未設定時は自身のRendererを使用）")]
         [SerializeField] private MeshRenderer seatRenderer;
@@ -44,6 +48,13 @@ namespace BoardGameKit.Core
             {
                 seatRenderer = GetComponent<MeshRenderer>();
             }
+
+            // 初期状態では手元UIは非表示
+            if (personalUIPanel != null)
+            {
+                personalUIPanel.SetActive(false);
+            }
+
             UpdateVisualAndInteraction();
         }
 
@@ -168,6 +179,13 @@ namespace BoardGameKit.Core
         {
             VRCPlayerApi localPlayer = Networking.LocalPlayer;
             int myId = (localPlayer != null) ? localPlayer.playerId : -1;
+            bool isMeSeated = (myId != -1 && seatedPlayerId == myId);
+
+            // 手元UIの表示・非表示（着席中の本人にのみローカル表示）
+            if (personalUIPanel != null)
+            {
+                personalUIPanel.SetActive(isMeSeated);
+            }
 
             if (seatedPlayerId == -1)
             {
@@ -178,7 +196,7 @@ namespace BoardGameKit.Core
                     seatRenderer.material.color = vacantColor;
                 }
             }
-            else if (seatedPlayerId == myId)
+            else if (isMeSeated)
             {
                 // 自分が着席中
                 InteractionText = $"席 {seatIndex + 1} を離れる (Leave Seat {seatIndex + 1})";
@@ -195,6 +213,18 @@ namespace BoardGameKit.Core
                 {
                     seatRenderer.material.color = occupiedColor;
                 }
+            }
+        }
+
+        /// <summary>
+        /// 手元UIの「席を離れる (Leave)」ボタン等から直接呼ばれる離席処理
+        /// </summary>
+        public void OnClickLeaveButton()
+        {
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            if (localPlayer != null && seatedPlayerId == localPlayer.playerId)
+            {
+                LeaveSeat(localPlayer);
             }
         }
 
