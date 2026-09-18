@@ -676,7 +676,7 @@ namespace BoardGameKit.Editor
                 "Assets/Projects/Scripts/Core/UIButtonHandler.cs",
                 "Assets/Projects/Scripts/Core/DebugClickButton.cs",
                 "Assets/Projects/Scripts/Core/CardSnapZone.cs",
-                "Assets/Projects/Scripts/Core/CardPickupHandler.cs",
+                "Assets/Projects/Scripts/Core/CardController.cs",
                 "Assets/Projects/Scripts/Plugins/RulePluginBase.cs"
             };
 
@@ -820,12 +820,12 @@ namespace BoardGameKit.Editor
             soVrcPickup.FindProperty("UseText").stringValue = "カードを出す (Play)";
             soVrcPickup.ApplyModifiedProperties();
 
-            // 7. CardPickupHandler のアタッチ (暴れ防止・空中静止・磁石スナップ制御)
-            CardPickupHandler pickupHandler = cardObj.AddUdonSharpComponent<CardPickupHandler>();
-            SerializedObject soPickup = new SerializedObject(pickupHandler);
-            soPickup.FindProperty("keepKinematicWhileHeld").boolValue = true;
-            soPickup.ApplyModifiedProperties();
-            UdonSharpEditorUtility.CopyProxyToUdon(pickupHandler);
+            // 7. CardController のアタッチ (Tell Don't Ask準拠: 暴れ防止・空中静止・磁石スナップ制御)
+            CardController cardController = cardObj.AddUdonSharpComponent<CardController>();
+            SerializedObject soCard = new SerializedObject(cardController);
+            soCard.FindProperty("keepKinematicWhileHeld").boolValue = true;
+            soCard.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(cardController);
 
             // 8. CardSlotController (UdonSharp) のアタッチ (B仕様クリック用互換)
             CardSlotController slotCtrl = cardObj.AddUdonSharpComponent<CardSlotController>();

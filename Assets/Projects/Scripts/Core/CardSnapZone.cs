@@ -8,7 +8,8 @@ namespace BoardGameKit.Core
     /// <summary>
     /// カードが吸着（スナップ）するスロット領域を定義するコンポーネント。
     /// 手札トレイのスロットや、テーブルの場のマス目にアタッチされる。
-    /// isTrigger = true の BoxCollider を持ち、近づいたカードを磁石のように定位置へ吸着させる。
+    /// Tell, Don't Ask原則に基づき、カードのTransformを外部から直接変更せず、
+    /// 受入判定を行った上でカードに SnapTo() 命令を発行する。
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class CardSnapZone : UdonSharpBehaviour
@@ -18,12 +19,12 @@ namespace BoardGameKit.Core
         public string slotName = "SnapSlot_0";
 
         [Tooltip("このスロットに現在カードが収まっているかどうか")]
-        public bool isOccupied = false;
+        [SerializeField] private bool isOccupied = false;
 
-        [Tooltip("現在このスロットに嵌まっているカード")]
-        public GameObject currentCard = null;
+        [Tooltip("現在このスロットに収まっているカード")]
+        [SerializeField] private CardController currentCard = null;
 
-        [Header("Visual Feedback (Optional)")]
+        [Header("Visual Feedback")]
         [Tooltip("カードが近づいたときにハイライト表示する枠（MeshRenderer）")]
         public MeshRenderer guideRenderer;
 
@@ -45,8 +46,77 @@ namespace BoardGameKit.Core
             }
         }
 
+        #region Tell, Don't Ask 外部公開API
+
         /// <summary>
-        /// ガイド枠のハイライト表示切り替え
+        /// 現在このスロットが占有されているかを返す
+        /// </summary>
+        public bool IsOccupied()
+        {
+            return isOccupied;
+        }
+
+        /// <summary>
+        /// 現在このスロットに収まっているカードを返す
+        /// </summary>
+        public CardController GetCurrentCard()
+        {
+            return currentCard;
+        }
+
+        /// <summary>
+        /// カードからの配置要請を受け入れ、判定する命令（Tell）。
+        /// 空いていればカード自身に目標姿勢への移動を命じる。
+        /// </summary>
+        /// <param name="card">配置を希望するカード</param>
+        /// <returns>受入成功ならtrue、満杯等で失敗ならfalse</returns>
+        public bool TrySnap(CardController card)
+        {
+            if (card == null) return false;
+            if (isOccupied) return false;
+
+            // スロット状態の更新
+            isOccupied = true;
+            currentCard = card;
+
+            // ガイド枠のハイライト解除と非表示（Zファイティング完全防止）
+            SetGuideHighlighted(false);
+            if (guideRenderer != null)
+            {
+                guideRenderer.enabled = false;
+            }
+
+            // 【Tell】カード自身に目標位置・回転への移動・整列を命じる
+            card.SnapTo(transform.position, transform.rotation);
+
+            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードを受入・スナップ命令を発行しました: {slotName} (Card: {card.gameObject.name})");
+            return true;
+        }
+
+        /// <summary>
+        /// 収まっていたカードが持ち上げられた（解放）ときの通知命令（Tell）。
+        /// </summary>
+        /// <param name="card">解放するカード</param>
+        public void ReleaseCard(CardController card)
+        {
+            if (card == null) return;
+            if (currentCard != card) return;
+
+            isOccupied = false;
+            currentCard = null;
+
+            // ガイド枠を再表示
+            if (guideRenderer != null)
+            {
+                guideRenderer.enabled = true;
+            }
+
+            SetGuideHighlighted(false);
+            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードがスロットから解放されました（ガイド再表示）: {slotName}");
+        }
+
+        /// <summary>
+        /// ガイド枠のハイライト色を切り替える
         /// </summary>
         public void SetGuideHighlighted(bool highlighted)
         {
@@ -56,40 +126,6 @@ namespace BoardGameKit.Core
             }
         }
 
-        /// <summary>
-        /// カードがこのスロットにスナップ（収容）されたときの通知
-        /// </summary>
-        public void OnCardSnapped(GameObject card)
-        {
-            isOccupied = true;
-            currentCard = card;
-            SetGuideHighlighted(false);
-
-            // 対策1: カード吸着時はガイド枠を非表示にし、Zファイティング（荒ぶり・チラつき）を完全防止
-            if (guideRenderer != null)
-            {
-                guideRenderer.enabled = false;
-            }
-
-            Debug.Log($"[VRC-BoardGameKit] [SnapZone] カードがスロットに吸着しました（ガイド枠非表示）: {slotName}");
-        }
-
-        /// <summary>
-        /// カードがこのスロットから持ち上げられた（離脱）ときの通知
-        /// </summary>
-        public void OnCardRemoved()
-        {
-            isOccupied = false;
-            currentCard = null;
-
-            // 対策1: カード離脱時はガイド枠を再表示
-            if (guideRenderer != null)
-            {
-                guideRenderer.enabled = true;
-            }
-
-            SetGuideHighlighted(false);
-            Debug.Log($"[VRC-BoardGameKit] [SnapZone] カードがスロットから離れました（ガイド枠再表示）: {slotName}");
-        }
+        #endregion
     }
 }
