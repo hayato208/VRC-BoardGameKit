@@ -897,7 +897,19 @@ Tools / VRC-BoardGameKit /
 2. **モード分岐**: `playMode == CardPlayMode.Immediate` により即時処理
 3. **所有権取得**: `Networking.SetOwner(localPlayer, card.gameObject)` で操作者に同期権限を移行
 4. **元枠解放**: `card.currentZone.ReleaseCard(card)` により手元スロットを解放（手元スロットは即座に空き状態となり、次回のドローが可能に）
-5. **中央吸着**: `centerPlayZone.TrySnap(card)` によりカード自身が中央の最前面へ2mmオフセットで整列移動
+---
+
+## 48. UdonSharpにおける所属ゾーン記憶の確実化と双方向参照の自動整合
+
+### ① 外部フィールド直接代入から「Tell原則（`SnapToZone`）」への移行理由
+*   **課題**: `CardSnapZone` から `card.currentZone = this;` と外部フィールドを直接書き換えるアプローチは、UdonVMの内部ヒープ管理やスクリプト更新タイミングによって参照が正常に反映されないリスクがあった。また「位置移動は命じるが、所属記憶は外部が勝手に行う」という責務の不一致が生じていた。
+*   **Tell, Don't Ask 原則の徹底**: カード側（`CardController`）に `SnapToZone(CardSnapZone zone, Vector3 targetPos, Quaternion targetRot)` を新設。スロット側は「この位置へ整列し、所属ゾーンを記憶せよ」とカード自身に命じ、カードが自らの内部で `this.currentZone = zone;` と `SnapTo(...)` を一括実行する堅牢なアーキテクチャに統合した。
+
+### ② スロット解放（`ReleaseCard`）時の双方向クリーンアップ
+*   スロット側がカードを解放する際、スロットの空きフラグ（`isOccupied = false`, `currentCard = null`）だけでなく、カード側の参照も `if (card.currentZone == this) card.currentZone = null;` と安全に解除する。
+*   これにより、カードとスロット間の参照不一致による「カードを出したのに手札スロットが満杯でドローできない」バグを恒久的に遮断した。
+
+
 
 
 

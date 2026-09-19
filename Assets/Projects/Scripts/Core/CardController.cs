@@ -79,8 +79,21 @@ namespace BoardGameKit.Core
         #region Tell, Don't Ask 外部公開命令 (Commands)
 
         /// <summary>
-        /// 指定されたワールド位置・回転へ自身を移動・整列させ、物理固定する命令。
-        /// スナップ枠やテーブルシステムから命じられて実行する。
+        /// 指定されたスナップ枠へカード自身を吸着整列させ、所属ゾーンを確実に記憶する（Tell原則）。
+        /// </summary>
+        /// <param name="zone">配置先のスナップ枠</param>
+        /// <param name="targetPosition">目標ワールド座標</param>
+        /// <param name="targetRotation">目標ワールド回転</param>
+        public void SnapToZone(CardSnapZone zone, Vector3 targetPosition, Quaternion targetRotation)
+        {
+            this.currentZone = zone;
+            SnapTo(targetPosition, targetRotation);
+            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ吸着し所属を記憶しました: {gameObject.name} -> {(zone != null ? zone.slotName : "None")}");
+        }
+
+        /// <summary>
+        /// 外部のスナップ枠（CardSnapZone）等から、目標姿勢への吸着を命じられたときの処理（Tell）。
+        /// カード自身が Rigidbody や Transform を制御して指定位置へ整列する。
         /// </summary>
         /// <param name="targetPosition">目標ワールド座標</param>
         /// <param name="targetRotation">目標ワールド回転</param>
@@ -281,7 +294,8 @@ namespace BoardGameKit.Core
             for (int i = 0; i < candidateCount; i++)
             {
                 CardSnapZone zone = candidateBuffer[i];
-                if (zone == null || zone.IsOccupied()) continue;
+                if (zone == null) continue;
+                if (zone.IsOccupied() && !zone.allowStack) continue;
 
                 // カード中心とスロット中心の平面/空間距離を計算
                 float distSqr = (zone.transform.position - myCenter).sqrMagnitude;
