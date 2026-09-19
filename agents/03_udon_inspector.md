@@ -45,6 +45,10 @@
 - [ ] **E1. Update内の過剰計算排除**: `Update()` 内で重い探索や `GetComponent` を毎フレーム回していないか？
 - [ ] **E2. 配列外参照の防止**: 配列アクセス時にインデックスの範囲チェックが行われているか？
 
+### F. Unityアセット・メタ整合性 (Asset & Meta Integrity)
+- [ ] **F1. .meta GUID維持原則**: 既存スクリプトや素材の `.meta` を不用意に再生成・上書きし、GUIDを破壊していないか？
+- [ ] **F2. U# ProgramAsset参照鎖**: `UdonSharpProgramAsset.asset` 内の `sourceCsScript` GUID と `.cs.meta` の GUID が100%一致しているか？（乖離時は即時自己修復または整合復元）
+
 ---
 
 ## 出力フォーマット

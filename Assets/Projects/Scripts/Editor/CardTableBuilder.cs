@@ -677,6 +677,7 @@ namespace BoardGameKit.Editor
                 "Assets/Projects/Scripts/Core/DebugClickButton.cs",
                 "Assets/Projects/Scripts/Core/CardSnapZone.cs",
                 "Assets/Projects/Scripts/Core/CardController.cs",
+                "Assets/Projects/Scripts/Core/PersonalHandArea.cs",
                 "Assets/Projects/Scripts/Plugins/RulePluginBase.cs"
             };
 
@@ -705,9 +706,10 @@ namespace BoardGameKit.Editor
             string assetPath = Path.ChangeExtension(scriptRelativePath, ".asset");
 
             UdonSharpProgramAsset programAsset = AssetDatabase.LoadAssetAtPath<UdonSharpProgramAsset>(assetPath);
+            MonoScript script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptRelativePath);
+
             if (programAsset == null)
             {
-                MonoScript script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptRelativePath);
                 if (script == null)
                 {
                     Debug.LogWarning($"[VRC-BoardGameKit] MonoScript not found at: {scriptRelativePath}");
@@ -720,6 +722,15 @@ namespace BoardGameKit.Editor
                 AssetDatabase.SaveAssets();
                 AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
                 Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> UdonSharpProgramAsset を自動生成しました: {assetPath}</color>");
+                return true;
+            }
+            else if (programAsset.sourceCsScript == null && script != null)
+            {
+                programAsset.sourceCsScript = script;
+                EditorUtility.SetDirty(programAsset);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+                Debug.Log($"<color=#FFFF00><b>[VRC-BoardGameKit]</b> 破損していた UdonSharpProgramAsset ({assetPath}) の sourceCsScript を自己修復しました。</color>");
                 return true;
             }
             return false;
@@ -937,6 +948,192 @@ namespace BoardGameKit.Editor
             guideQuad.transform.SetParent(slotObj.transform, false);
             guideQuad.transform.localPosition = Vector3.zero;
             guideQuad.transform.localScale = new Vector3(0.72f, 1.0f, 1.0f);
+            Object.DestroyImmediate(guideQuad.GetComponent<MeshCollider>());
+
+            // 半透明のガイド枠マテリアル
+            Material guideMat = new Material(Shader.Find("Unlit/Color"));
+            guideMat.color = new Color(0.2f, 0.7f, 1.0f, 0.25f); // 水色の半透明
+            guideQuad.GetComponent<MeshRenderer>().sharedMaterial = guideMat;
+
+            // CardSnapZone コンポーネントのアタッチ
+            CardSnapZone snapZone = slotObj.AddUdonSharpComponent<CardSnapZone>();
+            SerializedObject soZone = new SerializedObject(snapZone);
+            soZone.FindProperty("slotName").stringValue = name;
+            soZone.FindProperty("guideRenderer").objectReferenceValue = guideQuad.GetComponent<MeshRenderer>();
+            soZone.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(snapZone);
+
+            return slotObj;
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Build Dynamic Arcade Field in Scene (動的円弧スロット空間生成)")]
+        public static void BuildDynamicArcadeField()
+        {
+            EnsureAllProgramAssets();
+
+            // 既存のオブジェクトを安全に削除
+            string[] existingNames = { "DynamicCardField_4Players", "CardTable_4Players", "SnapTestArea" };
+            foreach (string name in existingNames)
+            {
+                GameObject obj = GameObject.Find(name);
+                if (obj != null)
+                {
+                    Undo.DestroyObjectImmediate(obj);
+                }
+            }
+
+            // ルートオブジェクト作成
+            GameObject root = new GameObject("DynamicCardField_4Players");
+            root.transform.position = Vector3.zero;
+            Undo.RegisterCreatedObjectUndo(root, "Build Dynamic Arcade Field");
+
+            // 1. TableManager の生成
+            GameObject tableMgrObj = new GameObject("TableManager");
+            tableMgrObj.transform.SetParent(root.transform, false);
+            TableManager tableManager = tableMgrObj.AddUdonSharpComponent<TableManager>();
+
+            // 2. 中央の場のプレイエリア (Center Play Area) の生成 (70cm x 98cm 大判CardSnapZone)
+            GameObject centerPlaySlot = CreateArcadeSnapSlot("Center_PlaySlot", new Vector3(0, 0.85f, 0), Quaternion.Euler(30f, 0, 0));
+            centerPlaySlot.transform.SetParent(root.transform, false);
+
+            // 3. 4つのプレイヤーエリア（登録キューブ ＆ 円弧状手札スロット）
+            Vector3[] seatPositions = {
+                new Vector3(0, 0, -2.5f),  // Seat 0: South (正面手前)
+                new Vector3(0, 0, 2.5f),   // Seat 1: North (対面奥)
+                new Vector3(2.5f, 0, 0),   // Seat 2: East (右)
+                new Vector3(-2.5f, 0, 0)   // Seat 3: West (左)
+            };
+            float[] seatYaws = { 0f, 180f, -90f, 90f };
+
+            SeatController[] seatControllers = new SeatController[4];
+
+            for (int i = 0; i < 4; i++)
+            {
+                GameObject seatRoot = new GameObject($"PlayerArea_Seat{i}");
+                seatRoot.transform.SetParent(root.transform, false);
+                seatRoot.transform.localPosition = seatPositions[i];
+                seatRoot.transform.localRotation = Quaternion.Euler(0, seatYaws[i], 0);
+
+                // A. 参加登録キューブ (RegistrationCube)
+                GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                cube.name = $"RegistrationCube_Seat{i}";
+                cube.transform.SetParent(seatRoot.transform, false);
+                cube.transform.localPosition = new Vector3(0.9f, 0.6f, 0f); // プレイヤーの右脇
+                cube.transform.localScale = new Vector3(0.35f, 0.35f, 0.35f);
+
+                SeatController seatCtrl = cube.AddUdonSharpComponent<SeatController>();
+                SerializedObject soSeat = new SerializedObject(seatCtrl);
+                soSeat.FindProperty("seatIndex").intValue = i;
+                soSeat.FindProperty("tableManager").objectReferenceValue = tableManager;
+                soSeat.FindProperty("seatRenderer").objectReferenceValue = cube.GetComponent<MeshRenderer>();
+                soSeat.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(seatCtrl);
+                seatControllers[i] = seatCtrl;
+
+                // B. 動的円弧手札エリア (PersonalHandArea)
+                GameObject handAreaObj = new GameObject($"PersonalHandArea_Seat{i}");
+                handAreaObj.transform.SetParent(seatRoot.transform, false);
+                handAreaObj.transform.localPosition = Vector3.zero; // プレイヤー立ち位置中心
+                handAreaObj.transform.localRotation = Quaternion.identity;
+
+                PersonalHandArea handArea = handAreaObj.AddUdonSharpComponent<PersonalHandArea>();
+
+                // スロット群をまとめるコンテナ (初期非表示)
+                GameObject slotContainer = new GameObject("SlotContainer");
+                slotContainer.transform.SetParent(handAreaObj.transform, false);
+                slotContainer.transform.localPosition = Vector3.zero;
+                slotContainer.transform.localRotation = Quaternion.identity;
+
+                int slotCount = 5;
+                float arcRadius = 1.40f;
+                float arcAngleStep = 36.0f; // チルト角を考慮し最も近づく下端でも8cm以上の隙間を確保
+                float arcTiltAngle = 12.0f; // 視線正対と下端間隔を両立する12度チルト
+                CardSnapZone[] snapZones = new CardSnapZone[slotCount];
+
+                for (int s = 0; s < slotCount; s++)
+                {
+                    // 幾何計算: 半径1.40m、角度ステップ36.0度 (-72, -36, 0, +36, +72)
+                    float angleDeg = (s - (slotCount - 1) / 2f) * arcAngleStep;
+                    float rad = angleDeg * Mathf.Deg2Rad;
+                    Vector3 slotPos = new Vector3(Mathf.Sin(rad) * arcRadius, 0.85f, Mathf.Cos(rad) * arcRadius);
+                    Quaternion slotRot = Quaternion.Euler(arcTiltAngle, angleDeg, 0f); // プレイヤー中心を向くYaw + 手前チルト12度
+
+                    GameObject slotObj = CreateArcadeSnapSlot($"Seat{i}_Slot_{s}", slotPos, slotRot);
+                    slotObj.transform.SetParent(slotContainer.transform, false);
+
+                    CardSnapZone zone = slotObj.GetComponent<CardSnapZone>();
+                    snapZones[s] = zone;
+                }
+
+                SerializedObject soHandArea = new SerializedObject(handArea);
+                soHandArea.FindProperty("slotCount").intValue = slotCount;
+                soHandArea.FindProperty("radius").floatValue = arcRadius;
+                soHandArea.FindProperty("angleStep").floatValue = arcAngleStep;
+                soHandArea.FindProperty("slotTiltAngle").floatValue = arcTiltAngle;
+                soHandArea.FindProperty("slotHeightY").floatValue = 0.85f;
+                soHandArea.FindProperty("slotContainer").objectReferenceValue = slotContainer;
+                SerializedProperty snapZonesProp = soHandArea.FindProperty("snapZones");
+                snapZonesProp.arraySize = slotCount;
+                for (int s = 0; s < slotCount; s++)
+                {
+                    snapZonesProp.GetArrayElementAtIndex(s).objectReferenceValue = snapZones[s];
+                }
+                soHandArea.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(handArea);
+
+                // SeatController に linkedHandArea を紐付け
+                soSeat.Update();
+                soSeat.FindProperty("linkedHandArea").objectReferenceValue = handArea;
+                soSeat.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(seatCtrl);
+
+                // 初期状態は非表示
+                slotContainer.SetActive(false);
+            }
+
+            // TableManager に 4席を登録
+            SerializedObject soTable = new SerializedObject(tableManager);
+            SerializedProperty seatsProp = soTable.FindProperty("seatControllers");
+            seatsProp.arraySize = 4;
+            for (int i = 0; i < 4; i++)
+            {
+                seatsProp.GetArrayElementAtIndex(i).objectReferenceValue = seatControllers[i];
+            }
+            soTable.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
+
+            // 4. 検証用大判カードをSeat 0の目の前に1枚配置
+            string cardPrefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
+            GameObject cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(cardPrefabPath);
+            if (cardPrefab != null)
+            {
+                GameObject cardInstance = (GameObject)PrefabUtility.InstantiatePrefab(cardPrefab);
+                cardInstance.transform.position = new Vector3(0, 0.95f, -1.8f); // Seat 0の手元近く
+                cardInstance.transform.rotation = Quaternion.Euler(0, 0, 0);
+                cardInstance.transform.SetParent(root.transform, true);
+            }
+
+            Selection.activeGameObject = root;
+            Debug.Log("<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (DynamicCardField_4Players) の構築が完了しました！</color>");
+        }
+
+        private static GameObject CreateArcadeSnapSlot(string name, Vector3 localPos, Quaternion localRot)
+        {
+            GameObject slotObj = new GameObject(name);
+            slotObj.transform.localPosition = localPos;
+            slotObj.transform.localRotation = localRot;
+
+            // 吸着検知用トリガーコライダー (幅72cm x 高さ105cm x 奥行30cm: ガイド枠幅に一致させ隣接スロットとの干渉をゼロ化)
+            BoxCollider triggerCol = slotObj.AddComponent<BoxCollider>();
+            triggerCol.isTrigger = true;
+            triggerCol.size = new Vector3(0.72f, 1.05f, 0.30f);
+
+            // 視覚ガイド用の薄い枠板 (Quad: 幅72cm x 高さ100cm)
+            GameObject guideQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            guideQuad.name = "GuideFrame";
+            guideQuad.transform.SetParent(slotObj.transform, false);
+            guideQuad.transform.localPosition = Vector3.zero;
+            guideQuad.transform.localScale = new Vector3(0.72f, 1.00f, 1.0f);
             Object.DestroyImmediate(guideQuad.GetComponent<MeshCollider>());
 
             // 半透明のガイド枠マテリアル

@@ -227,6 +227,27 @@ namespace BoardGameKit.Core
             return Networking.IsOwner(gameObject);
         }
 
+        /// <summary>
+        /// 指定されたプレイヤーが既にいずれかの座席に着席しているかを判定する（二重着席防止用）
+        /// </summary>
+        /// <param name="playerId">判定対象のプレイヤーID</param>
+        /// <returns>既にいずれかの席に着席中ならtrue、未着席ならfalse</returns>
+        public bool IsPlayerAlreadySeated(int playerId)
+        {
+            if (playerId == -1) return false;
+            if (seatControllers == null) return false;
+
+            for (int i = 0; i < seatControllers.Length; i++)
+            {
+                SeatController seat = seatControllers[i];
+                if (seat != null && seat.GetSeatedPlayerId() == playerId)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         // --- ゲッター ---
         public int GetCurrentTurnSeatIndex() => currentTurnSeatIndex;
         public int GetGameState() => gameState;

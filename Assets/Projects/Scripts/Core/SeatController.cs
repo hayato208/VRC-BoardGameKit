@@ -17,9 +17,11 @@ namespace BoardGameKit.Core
         [Tooltip("座席番号（0〜座席数-1）")]
         [SerializeField] private int seatIndex = 0;
 
-        [Header("References")]
-        [Tooltip("この座席に紐付く手札トレイ")]
+        [Tooltip("この座席に紐付く手札トレイ（旧仕様互換）")]
         [SerializeField] private HandTrayController linkedHandTray;
+
+        [Tooltip("この座席に紐付く円弧状手札エリア（新仕様）")]
+        [SerializeField] private PersonalHandArea linkedHandArea;
 
         [Tooltip("全体進行を司るTableManagerへの参照")]
         [SerializeField] private TableManager tableManager;
@@ -71,6 +73,13 @@ namespace BoardGameKit.Core
             // 1. 空席の場合：参加（プレイエリアにつく）
             if (seatedPlayerId == -1)
             {
+                // 【排他ガード】既に他の座席に着席中の場合は二重着席を遮断
+                if (tableManager != null && tableManager.IsPlayerAlreadySeated(myId))
+                {
+                    Debug.Log($"<color=#FF5555>[VRC-BoardGameKit] 既に他の座席に着席中のため、Seat_{seatIndex} には参加できません。</color>");
+                    return;
+                }
+
                 JoinSeat(localPlayer);
             }
             // 2. 自分が着席中の場合：離席（プレイエリアから離れる）
@@ -187,6 +196,12 @@ namespace BoardGameKit.Core
                 personalUIPanel.SetActive(isMeSeated);
             }
 
+            // 動的手札エリアの表示・非表示（着席中の本人にのみローカル表示）
+            if (linkedHandArea != null)
+            {
+                linkedHandArea.SetAreaVisible(isMeSeated);
+            }
+
             if (seatedPlayerId == -1)
             {
                 // 空席
@@ -271,5 +286,6 @@ namespace BoardGameKit.Core
         public int GetSeatedPlayerId() => seatedPlayerId;
         public bool IsOccupied() => seatedPlayerId != -1;
         public HandTrayController GetLinkedHandTray() => linkedHandTray;
+        public PersonalHandArea GetLinkedHandArea() => linkedHandArea;
     }
 }
