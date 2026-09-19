@@ -26,6 +26,18 @@ namespace BoardGameKit.Editor
         public static readonly Vector2 GuideFrameDimension = new Vector2(0.72f, 1.00f);
         public static readonly Vector3 TriggerColliderSize = new Vector3(0.72f, 1.05f, 0.30f);
 
+        // --- GUIスライダー許容範囲定数 (Slider Ranges) ---
+        public const int MinSlotCount = 1;
+        public const int MaxSlotCount = 10;
+        public const float MinGapCm = 4.0f;
+        public const float MaxGapCm = 20.0f;
+        public const float MinTiltAngle = 0.0f;
+        public const float MaxTiltAngle = 30.0f;
+        public const float MinHeightY = 0.60f;
+        public const float MaxHeightY = 1.20f;
+        public const float MinFovDeg = 90.0f;
+        public const float MaxFovDeg = 160.0f;
+
         // --- 幾何パラメータ ---
         public int slotCount = 5;            // スロット数
         public float radius = 1.40f;         // プレイヤー中心からの半径 (m)
@@ -1282,11 +1294,11 @@ namespace BoardGameKit.Editor
 
             // --- 1. 基本パラメータ設定 ---
             EditorGUILayout.LabelField("【スロット構成パラメータ】", EditorStyles.boldLabel);
-            slotCount = EditorGUILayout.IntSlider("手札スロット数 (枚)", slotCount, 1, 10);
-            minBottomGapCm = EditorGUILayout.Slider("下端の最小スキマ (cm)", minBottomGapCm, 4.0f, 20.0f);
-            tiltAngle = EditorGUILayout.Slider("手前チルト見下ろし角 (度)", tiltAngle, 0.0f, 30.0f);
-            slotHeightY = EditorGUILayout.Slider("スロット基準高さ Y (m)", slotHeightY, 0.60f, 1.20f);
-            maxFovDeg = EditorGUILayout.Slider("最大全体視野角 (度)", maxFovDeg, 90.0f, 160.0f);
+            slotCount = EditorGUILayout.IntSlider("手札スロット数 (枚)", slotCount, ArcadeFieldConfig.MinSlotCount, ArcadeFieldConfig.MaxSlotCount);
+            minBottomGapCm = EditorGUILayout.Slider("下端の最小スキマ (cm)", minBottomGapCm, ArcadeFieldConfig.MinGapCm, ArcadeFieldConfig.MaxGapCm);
+            tiltAngle = EditorGUILayout.Slider("手前チルト見下ろし角 (度)", tiltAngle, ArcadeFieldConfig.MinTiltAngle, ArcadeFieldConfig.MaxTiltAngle);
+            slotHeightY = EditorGUILayout.Slider("スロット基準高さ Y (m)", slotHeightY, ArcadeFieldConfig.MinHeightY, ArcadeFieldConfig.MaxHeightY);
+            maxFovDeg = EditorGUILayout.Slider("最大全体視野角 (度)", maxFovDeg, ArcadeFieldConfig.MinFovDeg, ArcadeFieldConfig.MaxFovDeg);
 
             EditorGUILayout.Space(12);
 
