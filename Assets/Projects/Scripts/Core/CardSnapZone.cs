@@ -53,7 +53,7 @@ namespace BoardGameKit.Core
             if (guideRenderer != null)
             {
                 guideMaterialInstance = guideRenderer.material;
-                guideRenderer.enabled = !isOccupied;
+                guideRenderer.enabled = true;
                 SetGuideHighlighted(false);
             }
         }
@@ -106,21 +106,19 @@ namespace BoardGameKit.Core
             // スロット状態の更新
             isOccupied = true;
             currentCard = card;
+            card.currentZone = this;
 
-            // ガイド枠のハイライト解除と非表示（Zファイティング完全防止）
+            // ガイド枠のハイライト解除（枠自体は常時表示を維持し、エリア消失を防止）
             SetGuideHighlighted(false);
-            if (guideRenderer != null)
-            {
-                guideRenderer.enabled = false;
-            }
 
-            Vector3 targetPos = transform.position;
+            // Quadの表面法線方向（手前: -transform.forward）へ 2mm オフセット（Zファイティング完全防止）
+            Vector3 targetPos = transform.position - (transform.forward * stackElevationOffset);
             Quaternion targetRot = transform.rotation;
 
             if (allowStack)
             {
-                // Quadの表面法線方向（手前: -transform.forward）へ 2mm ずつオフセット
-                targetPos = transform.position - (transform.forward * (stackedCount * stackElevationOffset));
+                // スタック時はさらに 2mm ずつ手前に重ねる
+                targetPos = transform.position - (transform.forward * ((stackedCount + 1) * stackElevationOffset));
                 if (stackedCount < MAX_STACK_SIZE)
                 {
                     stackedCards[stackedCount] = card;
@@ -128,8 +126,8 @@ namespace BoardGameKit.Core
                 }
             }
 
-            // 【Tell】カード自身に目標位置・回転への移動・整列を命じる
-            card.SnapTo(targetPos, targetRot);
+            // 【Tell】カード自身に目標位置・回転への移動・整列および所属記憶を命じる
+            card.SnapToZone(this, targetPos, targetRot);
 
             Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードを受入・スナップ命令を発行しました: {slotName} (Card: {card.gameObject.name}, StackCount: {stackedCount})");
             return true;
@@ -182,16 +180,18 @@ namespace BoardGameKit.Core
             }
             else
             {
-                if (currentCard != card) return;
-
                 isOccupied = false;
                 currentCard = null;
 
-                // ガイド枠を再表示
                 if (guideRenderer != null)
                 {
                     guideRenderer.enabled = true;
                 }
+            }
+
+            if (card.currentZone == this)
+            {
+                card.currentZone = null;
             }
 
             SetGuideHighlighted(false);
