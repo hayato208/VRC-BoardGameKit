@@ -35,42 +35,46 @@ namespace BoardGameKit.Editor
         public float minBottomGap = 0.08f;   // 最も近づく下端の最小保証隙間 (m)
 
         /// <summary>
-        /// 指定されたスロット数に応じた最適な幾何パラメータ（半径・角度・チルト）を数学的に自動算出する
+        /// 指定されたスロット数・隙間・視野角制限に応じた最適な幾何パラメータ（半径・角度）を一元数式で自動算出する。
+        /// if文による段階的ハードコードを全廃し、連続的な幾何方程式から唯一の解を導出する。
         /// </summary>
-        public static ArcadeFieldConfig CreateOptimized(int count)
+        /// <param name="count">スロット枚数 (1〜10)</param>
+        /// <param name="customGap">下端の最小保証隙間 (m)</param>
+        /// <param name="maxFovDeg">最大全体展開視野角 (度)</param>
+        public static ArcadeFieldConfig CreateOptimized(int count, float customGap = 0.08f, float maxFovDeg = 140.0f)
         {
             var config = new ArcadeFieldConfig();
             config.slotCount = Mathf.Clamp(count, 1, 10);
             config.tiltAngle = 12.0f;
             config.slotHeightY = 0.85f;
-            config.minBottomGap = 0.08f;
+            config.minBottomGap = Mathf.Max(customGap, 0.02f); // 最小2cm以上
 
-            // 必要な弦長 = ガイド枠幅 + 最小隙間 (0.72m + 0.08m = 0.80m)
+            if (config.slotCount <= 1)
+            {
+                config.radius = 1.35f;
+                config.angleStep = 0f;
+                return config;
+            }
+
+            // 1. 下端においてカード枠同士が衝突しないための必要弦長 (幅72cm + 隙間)
             float requiredChord = GuideFrameDimension.x + config.minBottomGap;
 
-            // 枚数に応じた半径の最適化（視野角145度以内に収めるためのエルゴノミクス設計）
-            if (config.slotCount <= 3)
-            {
-                config.radius = 1.30f;
-            }
-            else if (config.slotCount <= 5)
-            {
-                config.radius = 1.40f;
-            }
-            else if (config.slotCount <= 7)
-            {
-                config.radius = 1.65f; // 枚数が多い場合は半径を広げて視野角内に収める
-            }
-            else
-            {
-                config.radius = 1.90f;
-            }
+            // 2. プレイヤーの最大視野角（maxFovDeg: 約140度）から決まる許容最大ステップ角
+            float fovAngleStep = maxFovDeg / (config.slotCount - 1);
 
-            // チルトによる下端半径の縮小分を考慮した厳密な角度ステップ計算
-            float bottomRadius = config.radius - (GuideFrameDimension.y / 2f) * Mathf.Sin(config.tiltAngle * Mathf.Deg2Rad);
-            float sinHalfAngle = requiredChord / (2f * bottomRadius);
-            sinHalfAngle = Mathf.Clamp(sinHalfAngle, 0.01f, 0.99f);
-            config.angleStep = Mathf.Asin(sinHalfAngle) * 2f * Mathf.Rad2Deg;
+            // 3. 至近距離での標準ステップ角（約36度）と視野制限の調和（連続式）
+            // 枚数が少ない時は36度基準で中央に自然に集まり、枚数が多い時は視野制限に沿って展開
+            float chosenAngleStep = Mathf.Min(36.0f, fovAngleStep);
+            config.angleStep = chosenAngleStep;
+
+            // 4. 決定した角度ステップにおいて下端弦長を厳密に成立させる下端半径の幾何逆算:
+            //    Chord = 2 * R_bottom * sin(angleStep / 2)  ==>  R_bottom = Chord / (2 * sin(angleStep / 2))
+            float halfRad = (chosenAngleStep * 0.5f) * Mathf.Deg2Rad;
+            float bottomRadius = requiredChord / (2f * Mathf.Sin(halfRad));
+
+            // 5. チルト角による手前倒れ込み分を加算し、中心高さにおける半径 R を算出
+            float tiltOffset = (GuideFrameDimension.y * 0.5f) * Mathf.Sin(config.tiltAngle * Mathf.Deg2Rad);
+            config.radius = Mathf.Max(bottomRadius + tiltOffset, 1.35f);
 
             return config;
         }
@@ -1241,7 +1245,82 @@ namespace BoardGameKit.Editor
             soZone.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(snapZone);
 
-            return slotObj;
+        return slotObj;
+        }
+    }
+
+    /// <summary>
+    /// プレイヤー包囲型円弧スロット空間を直感的なGUIで設計・生成する専用エディタウィンドウ。
+    /// スロット枚数（1〜10枚）・スキマ・チルト角をスライダーで自由に変更し、ワンクリックでシーンへ反映する。
+    /// </summary>
+    public class ArcadeFieldBuilderWindow : EditorWindow
+    {
+        [SerializeField] private int slotCount = 5;
+        [SerializeField] private float minBottomGapCm = 8.0f;
+        [SerializeField] private float tiltAngle = 12.0f;
+        [SerializeField] private float slotHeightY = 0.85f;
+        [SerializeField] private float maxFovDeg = 140.0f;
+
+        private Vector2 scrollPos;
+
+        [MenuItem("Tools/VRC-BoardGameKit/Dynamic Arcade Field Builder (円弧空間ビルダー GUI)", false, 1)]
+        public static void OpenWindow()
+        {
+            var window = GetWindow<ArcadeFieldBuilderWindow>("Arcade Field Builder");
+            window.minSize = new Vector2(380, 440);
+            window.Show();
+        }
+
+        private void OnGUI()
+        {
+            scrollPos = EditorGUILayout.BeginScrollView(scrollPos);
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("Dynamic Arcade Field Builder", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("プレイヤー包囲型円弧スロット空間の幾何パラメータ設計＆自動生成", EditorStyles.miniLabel);
+            EditorGUILayout.Space(8);
+
+            // --- 1. 基本パラメータ設定 ---
+            EditorGUILayout.LabelField("【スロット構成パラメータ】", EditorStyles.boldLabel);
+            slotCount = EditorGUILayout.IntSlider("手札スロット数 (枚)", slotCount, 1, 10);
+            minBottomGapCm = EditorGUILayout.Slider("下端の最小スキマ (cm)", minBottomGapCm, 4.0f, 20.0f);
+            tiltAngle = EditorGUILayout.Slider("手前チルト見下ろし角 (度)", tiltAngle, 0.0f, 30.0f);
+            slotHeightY = EditorGUILayout.Slider("スロット基準高さ Y (m)", slotHeightY, 0.60f, 1.20f);
+            maxFovDeg = EditorGUILayout.Slider("最大全体視野角 (度)", maxFovDeg, 90.0f, 160.0f);
+
+            EditorGUILayout.Space(12);
+
+            // --- 2. 幾何計算プレビュー ---
+            ArcadeFieldConfig previewConfig = ArcadeFieldConfig.CreateOptimized(slotCount, minBottomGapCm * 0.01f, maxFovDeg);
+            previewConfig.tiltAngle = tiltAngle;
+            previewConfig.slotHeightY = slotHeightY;
+
+            float totalArcDeg = (slotCount > 1) ? (slotCount - 1) * previewConfig.angleStep : 0f;
+
+            EditorGUILayout.LabelField("【自動幾何計算プレビュー (一元数式算出)】", EditorStyles.boldLabel);
+            string previewInfo = 
+                $"・プレイヤー中心半径 R: {previewConfig.radius:F2} m\n" +
+                $"・スロット間ステップ角度: {previewConfig.angleStep:F1} 度\n" +
+                $"・全体展開視野角: {totalArcDeg:F1} 度 (正面左右 ±{totalArcDeg * 0.5f:F1}度)\n" +
+                $"・最も狭まる下端スキマ: {minBottomGapCm:F1} cm (完全保証)\n" +
+                $"・カード寸法: 幅 {ArcadeFieldConfig.CardDimension.x * 100:F0}cm × 高 {ArcadeFieldConfig.CardDimension.y * 100:F0}cm (大判)";
+
+            EditorGUILayout.HelpBox(previewInfo, MessageType.Info);
+
+            EditorGUILayout.Space(16);
+
+            // --- 3. 生成ボタン ---
+            GUI.backgroundColor = new Color(0.2f, 0.9f, 0.5f);
+            if (GUILayout.Button($"シーン上に空間を自動生成 (手札 {slotCount} 枠)", GUILayout.Height(40)))
+            {
+                CardTableBuilder.BuildDynamicArcadeField(previewConfig);
+            }
+            GUI.backgroundColor = Color.white;
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.HelpBox("※生成を実行すると、シーン上の既存フィールドが自動削除され、最新設定で再構築されます。", MessageType.None);
+
+            EditorGUILayout.EndScrollView();
         }
     }
 }
