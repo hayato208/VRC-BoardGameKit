@@ -11,6 +11,7 @@ using UdonSharp;
 using UdonSharpEditor;
 using BoardGameKit.Core;
 using System.IO;
+using System.Collections.Generic;
 
 namespace BoardGameKit.Editor
 {
@@ -1424,6 +1425,124 @@ namespace BoardGameKit.Editor
 
             return slotObj;
         }
+
+        /// <summary>
+        /// 指定されたカードの表面・裏面テクスチャを設定・更新する
+        /// </summary>
+        public static void SetCardTextures(CardController card, Texture2D frontTex, Texture2D backTex)
+        {
+            if (card == null) return;
+            MeshRenderer mr = card.GetComponent<MeshRenderer>();
+            if (mr == null) return;
+
+            Undo.RecordObject(mr, "Set Card Textures");
+
+            Material mat = mr.sharedMaterial;
+            if (mat == null || mat.shader == null || mat.shader.name != "BoardGameKit/CardTwoSided")
+            {
+                Shader shader = Shader.Find("BoardGameKit/CardTwoSided");
+                if (shader == null) shader = Shader.Find("Unlit/Texture");
+                mat = new Material(shader);
+                mr.sharedMaterial = mat;
+            }
+            else
+            {
+                // 個別マテリアルとしてインスタンス化
+                mat = new Material(mat);
+                mr.sharedMaterial = mat;
+            }
+
+            if (frontTex != null) mat.SetTexture("_MainTex", frontTex);
+            if (backTex != null) mat.SetTexture("_BackTex", backTex);
+            mat.SetFloat("_FlipBackUV", 1.0f);
+            mat.SetFloat("_ShowFront", 1.0f);
+
+            EditorUtility.SetDirty(mr);
+            EditorUtility.SetDirty(card.gameObject);
+        }
+
+        /// <summary>
+        /// 山札のオブジェクトプール枚数を動的に増減リサイズする
+        /// </summary>
+        public static void ResizeDeckPool(DeckManager deckManager, int newPoolCount)
+        {
+            if (deckManager == null || newPoolCount < 1) return;
+
+            Undo.RecordObject(deckManager, "Resize Deck Pool");
+
+            // CardPoolContainer を検索
+            Transform container = deckManager.transform.Find("CardPoolContainer");
+            if (container == null)
+            {
+                GameObject newContainer = new GameObject("CardPoolContainer");
+                newContainer.transform.SetParent(deckManager.transform, false);
+                newContainer.transform.localPosition = Vector3.zero;
+                container = newContainer.transform;
+                Undo.RegisterCreatedObjectUndo(newContainer, "Create CardPoolContainer");
+            }
+
+            List<CardController> currentList = new List<CardController>();
+            if (deckManager.cardPool != null)
+            {
+                foreach (var c in deckManager.cardPool)
+                {
+                    if (c != null) currentList.Add(c);
+                }
+            }
+
+            string cardPrefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
+            GameObject cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(cardPrefabPath);
+            if (cardPrefab == null)
+            {
+                cardPrefab = BuildYoungGirlCardPrefab();
+            }
+
+            // 増加する場合: 新規カードを生成
+            while (currentList.Count < newPoolCount)
+            {
+                int newId = currentList.Count;
+                GameObject cardInstance = (GameObject)PrefabUtility.InstantiatePrefab(cardPrefab);
+                cardInstance.name = $"PoolCard_{newId:D2}";
+                cardInstance.transform.SetParent(container, false);
+                Undo.RegisterCreatedObjectUndo(cardInstance, "Create Pool Card");
+
+                CardController cardCtrl = cardInstance.GetComponent<CardController>();
+                if (cardCtrl != null)
+                {
+                    cardCtrl.cardId = newId;
+                    cardCtrl.ResetToDeck(deckManager.transform.localPosition, deckManager.transform.localRotation);
+                    currentList.Add(cardCtrl);
+                }
+            }
+
+            // 減少する場合: 末尾から削除
+            while (currentList.Count > newPoolCount)
+            {
+                int lastIndex = currentList.Count - 1;
+                CardController toRemove = currentList[lastIndex];
+                currentList.RemoveAt(lastIndex);
+                if (toRemove != null)
+                {
+                    Undo.DestroyObjectImmediate(toRemove.gameObject);
+                }
+            }
+
+            // DeckManager へのシリアライズ反映
+            SerializedObject soDeck = new SerializedObject(deckManager);
+            soDeck.FindProperty("defaultCardCount").intValue = newPoolCount;
+            SerializedProperty propPool = soDeck.FindProperty("cardPool");
+            propPool.arraySize = newPoolCount;
+            for (int i = 0; i < newPoolCount; i++)
+            {
+                propPool.GetArrayElementAtIndex(i).objectReferenceValue = currentList[i];
+            }
+            soDeck.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(deckManager);
+
+            EditorUtility.SetDirty(deckManager);
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 山札カードプールを {newPoolCount} 枚に更新しました！</color>");
+        }
     }
 
     /// <summary>
@@ -1503,4 +1622,363 @@ namespace BoardGameKit.Editor
             EditorGUILayout.EndScrollView();
         }
     }
+
+    /// <summary>
+    /// 山札の総数（PoolCard枚数）の変更、表裏テクスチャの設定、複数選択一括割当、
+    /// 連番ドラッグ＆ドロップ流し込み、全カード統一設定を行う専用エディタウィンドウ。
+    /// </summary>
+    public class DeckCardEditorWindow : EditorWindow
+    {
+        [SerializeField] private DeckManager targetDeck;
+        [SerializeField] private int newPoolCount = 20;
+
+        // 全体一括設定用
+        [SerializeField] private Texture2D bulkBackTex;
+        [SerializeField] private Texture2D bulkFrontTex;
+
+        // 選択カード一括設定用
+        [SerializeField] private Texture2D selectedFrontTex;
+        [SerializeField] private Texture2D selectedBackTex;
+
+        // 連番D&D用
+        [SerializeField] private int dragDropStartId = 0;
+
+        private bool[] selectionFlags;
+        private Vector2 windowScrollPos;
+        private Vector2 cardListScrollPos;
+
+        [MenuItem("Tools/VRC-BoardGameKit/Deck & Card Editor (山札・カード画像設定 GUI)", false, 2)]
+        public static void OpenWindow()
+        {
+            var window = GetWindow<DeckCardEditorWindow>("Deck & Card Editor");
+            window.minSize = new Vector2(460, 600);
+            window.Show();
+        }
+
+        private void OnEnable()
+        {
+            FindTargetDeckIfNull();
+            SyncSelectionFlags();
+        }
+
+        private void FindTargetDeckIfNull()
+        {
+            if (targetDeck == null)
+            {
+                targetDeck = Object.FindObjectOfType<DeckManager>();
+                if (targetDeck != null && targetDeck.cardPool != null)
+                {
+                    newPoolCount = targetDeck.cardPool.Length;
+                }
+            }
+        }
+
+        private void SyncSelectionFlags()
+        {
+            int count = (targetDeck != null && targetDeck.cardPool != null) ? targetDeck.cardPool.Length : 0;
+            if (selectionFlags == null || selectionFlags.Length != count)
+            {
+                selectionFlags = new bool[count];
+            }
+        }
+
+        private void OnGUI()
+        {
+            windowScrollPos = EditorGUILayout.BeginScrollView(windowScrollPos);
+
+            EditorGUILayout.Space(8);
+            EditorGUILayout.LabelField("Deck & Card Editor (山札・カード設定)", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("山札枚数の変更、カード表裏画像の設定・一括流し込み・統一設定", EditorStyles.miniLabel);
+            EditorGUILayout.Space(8);
+
+            // 1. ターゲット山札の指定
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("【対象の山札 (DeckManager)】", EditorStyles.boldLabel);
+            DeckManager prevDeck = targetDeck;
+            targetDeck = (DeckManager)EditorGUILayout.ObjectField("Target Deck", targetDeck, typeof(DeckManager), true);
+            if (targetDeck != prevDeck)
+            {
+                if (targetDeck != null && targetDeck.cardPool != null)
+                {
+                    newPoolCount = targetDeck.cardPool.Length;
+                }
+                SyncSelectionFlags();
+            }
+
+            if (targetDeck == null)
+            {
+                if (GUILayout.Button("シーン内の山札を自動検索して選択"))
+                {
+                    FindTargetDeckIfNull();
+                    SyncSelectionFlags();
+                }
+                EditorGUILayout.HelpBox("シーン内に山札（DeckManager）が見つかりません。卓を生成するか、山札をアサインしてください。", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                EditorGUILayout.EndScrollView();
+                return;
+            }
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(8);
+
+            // 2. 山札プール枚数の増減
+            int currentPoolCount = (targetDeck.cardPool != null) ? targetDeck.cardPool.Length : 0;
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("【1. 山札プール総数の変更】", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField($"現在のプール枚数: {currentPoolCount} 枚", EditorStyles.label);
+
+            newPoolCount = EditorGUILayout.IntSlider("変更後のプール枚数 (枚)", newPoolCount, 1, 100);
+
+            if (newPoolCount != currentPoolCount)
+            {
+                GUI.backgroundColor = new Color(1.0f, 0.7f, 0.2f);
+                if (GUILayout.Button($"プール枚数を {currentPoolCount} 枚 ➔ {newPoolCount} 枚 に更新", GUILayout.Height(30)))
+                {
+                    CardTableBuilder.ResizeDeckPool(targetDeck, newPoolCount);
+                    SyncSelectionFlags();
+                }
+                GUI.backgroundColor = Color.white;
+            }
+            else
+            {
+                GUI.enabled = false;
+                GUILayout.Button("プール枚数は最新です", GUILayout.Height(24));
+                GUI.enabled = true;
+            }
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(8);
+
+            // 3. 全カード共通画像（統一設定）
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("【2. 全カード画像の一括統一設定】", EditorStyles.boldLabel);
+            
+            // 裏面統一
+            EditorGUILayout.BeginHorizontal();
+            bulkBackTex = (Texture2D)EditorGUILayout.ObjectField("共通 裏面画像", bulkBackTex, typeof(Texture2D), false);
+            if (GUILayout.Button("全カードの裏面を一括統一", GUILayout.Width(170)))
+            {
+                if (bulkBackTex != null && targetDeck.cardPool != null)
+                {
+                    foreach (var card in targetDeck.cardPool)
+                    {
+                        if (card != null)
+                        {
+                            CardTableBuilder.SetCardTextures(card, null, bulkBackTex);
+                        }
+                    }
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 全 {targetDeck.cardPool.Length} 枚の裏面を統一画像に更新しました！</color>");
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 表面統一
+            EditorGUILayout.BeginHorizontal();
+            bulkFrontTex = (Texture2D)EditorGUILayout.ObjectField("共通 表面画像", bulkFrontTex, typeof(Texture2D), false);
+            if (GUILayout.Button("全カードの表面を一括統一", GUILayout.Width(170)))
+            {
+                if (bulkFrontTex != null && targetDeck.cardPool != null)
+                {
+                    foreach (var card in targetDeck.cardPool)
+                    {
+                        if (card != null)
+                        {
+                            CardTableBuilder.SetCardTextures(card, bulkFrontTex, null);
+                        }
+                    }
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 全 {targetDeck.cardPool.Length} 枚の表面を統一画像に更新しました！</color>");
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(8);
+
+            // 4. 複数画像連番ドラッグ＆ドロップ流し込み
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("【3. 連番画像のドラッグ＆ドロップ一括流し込み】", EditorStyles.boldLabel);
+            dragDropStartId = EditorGUILayout.IntField("開始カード番号 (No.)", dragDropStartId);
+            if (dragDropStartId < 0) dragDropStartId = 0;
+
+            Rect dropArea = GUILayoutUtility.GetRect(0.0f, 45.0f, GUILayout.ExpandWidth(true));
+            GUI.Box(dropArea, "【ここに複数テクスチャをまとめてドラッグ＆ドロップ】\n(名前順にソートして開始番号から順次表面に割り当てます)", EditorStyles.helpBox);
+
+            Event evt = Event.current;
+            if (dropArea.Contains(evt.mousePosition))
+            {
+                if (evt.type == EventType.DragUpdated)
+                {
+                    DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+                    evt.Use();
+                }
+                else if (evt.type == EventType.DragPerform)
+                {
+                    DragAndDrop.AcceptDrag();
+                    List<Texture2D> droppedTextures = new List<Texture2D>();
+                    foreach (Object draggedObj in DragAndDrop.objectReferences)
+                    {
+                        if (draggedObj is Texture2D tex)
+                        {
+                            droppedTextures.Add(tex);
+                        }
+                    }
+
+                    // 名前昇順でソート
+                    droppedTextures.Sort((a, b) => string.Compare(a.name, b.name, System.StringComparison.OrdinalIgnoreCase));
+
+                    if (droppedTextures.Count > 0 && targetDeck.cardPool != null)
+                    {
+                        int applyCount = 0;
+                        for (int i = 0; i < droppedTextures.Count; i++)
+                        {
+                            int targetIdx = dragDropStartId + i;
+                            if (targetIdx < targetDeck.cardPool.Length && targetDeck.cardPool[targetIdx] != null)
+                            {
+                                CardTableBuilder.SetCardTextures(targetDeck.cardPool[targetIdx], droppedTextures[i], null);
+                                applyCount++;
+                            }
+                        }
+                        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                        Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> {applyCount} 枚の連番テクスチャを Card No.{dragDropStartId} から順次割り当てました！</color>");
+                    }
+                    evt.Use();
+                }
+            }
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(8);
+
+            // 5. 複数選択 ＆ 選択カード一括設定
+            SyncSelectionFlags();
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField("【4. 選択カード一括設定】", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("すべて選択"))
+            {
+                for (int i = 0; i < selectionFlags.Length; i++) selectionFlags[i] = true;
+            }
+            if (GUILayout.Button("すべて解除"))
+            {
+                for (int i = 0; i < selectionFlags.Length; i++) selectionFlags[i] = false;
+            }
+            if (GUILayout.Button("選択反転"))
+            {
+                for (int i = 0; i < selectionFlags.Length; i++) selectionFlags[i] = !selectionFlags[i];
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 選択表面一括
+            EditorGUILayout.BeginHorizontal();
+            selectedFrontTex = (Texture2D)EditorGUILayout.ObjectField("選択用 表面画像", selectedFrontTex, typeof(Texture2D), false);
+            if (GUILayout.Button("選択カードの表面に一括適用", GUILayout.Width(170)))
+            {
+                if (selectedFrontTex != null && targetDeck.cardPool != null)
+                {
+                    int count = 0;
+                    for (int i = 0; i < targetDeck.cardPool.Length; i++)
+                    {
+                        if (i < selectionFlags.Length && selectionFlags[i] && targetDeck.cardPool[i] != null)
+                        {
+                            CardTableBuilder.SetCardTextures(targetDeck.cardPool[i], selectedFrontTex, null);
+                            count++;
+                        }
+                    }
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 選択された {count} 枚の表面テクスチャを更新しました！</color>");
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // 選択裏面一括
+            EditorGUILayout.BeginHorizontal();
+            selectedBackTex = (Texture2D)EditorGUILayout.ObjectField("選択用 裏面画像", selectedBackTex, typeof(Texture2D), false);
+            if (GUILayout.Button("選択カードの裏面に一括適用", GUILayout.Width(170)))
+            {
+                if (selectedBackTex != null && targetDeck.cardPool != null)
+                {
+                    int count = 0;
+                    for (int i = 0; i < targetDeck.cardPool.Length; i++)
+                    {
+                        if (i < selectionFlags.Length && selectionFlags[i] && targetDeck.cardPool[i] != null)
+                        {
+                            CardTableBuilder.SetCardTextures(targetDeck.cardPool[i], null, selectedBackTex);
+                            count++;
+                        }
+                    }
+                    UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 選択された {count} 枚の裏面テクスチャを更新しました！</color>");
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(8);
+
+            // 6. 各カード一覧（個別設定）
+            EditorGUILayout.BeginVertical("box");
+            EditorGUILayout.LabelField($"【5. カード個別設定一覧 (全 {currentPoolCount} 枚)】", EditorStyles.boldLabel);
+
+            cardListScrollPos = EditorGUILayout.BeginScrollView(cardListScrollPos, GUILayout.Height(300));
+            if (targetDeck.cardPool != null)
+            {
+                for (int i = 0; i < targetDeck.cardPool.Length; i++)
+                {
+                    CardController card = targetDeck.cardPool[i];
+                    if (card == null) continue;
+
+                    MeshRenderer mr = card.GetComponent<MeshRenderer>();
+                    Material mat = (mr != null) ? mr.sharedMaterial : null;
+                    Texture2D currentFront = (mat != null && mat.HasProperty("_MainTex")) ? (Texture2D)mat.GetTexture("_MainTex") : null;
+                    Texture2D currentBack = (mat != null && mat.HasProperty("_BackTex")) ? (Texture2D)mat.GetTexture("_BackTex") : null;
+
+                    EditorGUILayout.BeginHorizontal("box");
+
+                    // 選択チェックボックス
+                    if (i < selectionFlags.Length)
+                    {
+                        selectionFlags[i] = EditorGUILayout.Toggle(selectionFlags[i], GUILayout.Width(20));
+                    }
+
+                    // カード番号
+                    EditorGUILayout.LabelField($"No.{i:D2}", GUILayout.Width(45));
+
+                    // 表面テクスチャ
+                    EditorGUI.BeginChangeCheck();
+                    Texture2D newFront = (Texture2D)EditorGUILayout.ObjectField(currentFront, typeof(Texture2D), false, GUILayout.Width(130));
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        CardTableBuilder.SetCardTextures(card, newFront, currentBack);
+                        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                    }
+
+                    // 裏面テクスチャ
+                    EditorGUI.BeginChangeCheck();
+                    Texture2D newBack = (Texture2D)EditorGUILayout.ObjectField(currentBack, typeof(Texture2D), false, GUILayout.Width(130));
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        CardTableBuilder.SetCardTextures(card, currentFront, newBack);
+                        UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+                    }
+
+                    // Ping（選択）ボタン
+                    if (GUILayout.Button("選択", GUILayout.Width(45)))
+                    {
+                        Selection.activeGameObject = card.gameObject;
+                        EditorGUIUtility.PingObject(card.gameObject);
+                    }
+
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(12);
+            EditorGUILayout.EndScrollView();
+        }
+    }
 }
+
