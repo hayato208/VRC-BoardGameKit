@@ -23,14 +23,10 @@ namespace BoardGameKit.Core
         {
             this.InteractionText = "カードを引く (Draw)";
 
-            // 参照がインスペクタから外れていた場合の防護フォールバック
+            // 参照が外れていた場合の親階層フォールバック (GetComponentInParent は Udon サポート済み)
             if (linkedHandArea == null)
             {
                 linkedHandArea = GetComponentInParent<PersonalHandArea>();
-            }
-            if (deckManager == null)
-            {
-                deckManager = Object.FindObjectOfType<DeckManager>();
             }
         }
 
@@ -52,10 +48,6 @@ namespace BoardGameKit.Core
 
         private void ExecuteDraw()
         {
-            if (deckManager == null)
-            {
-                deckManager = Object.FindObjectOfType<DeckManager>();
-            }
             if (linkedHandArea == null)
             {
                 linkedHandArea = GetComponentInParent<PersonalHandArea>();
@@ -63,7 +55,7 @@ namespace BoardGameKit.Core
 
             if (deckManager == null || linkedHandArea == null)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] deckManager または linkedHandArea が取得できません。");
+                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] deckManager または linkedHandArea が設定されていません。");
                 return;
             }
 

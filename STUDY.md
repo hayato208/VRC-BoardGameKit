@@ -801,6 +801,24 @@ Unity組み込みの3D形状（プリミティブ）は、一見どれも「板�
 * **解決策**:
   * `CreateButton` の実績パターンに統一し、`enableAutoSizing = true`、`fontSizeMin = 2.0f`、`fontSizeMax = 4.2f`、`EditorUtility.SetDirty` を適用してフォントマテリアルとメッシュを確実にシリアライズ。
 
+---
+
+## 43. Udon VM における未露出API（Method is not exposed to Udon）と参照バインド原則
+
+### ① 発生したエラーのメカニズム
+* **エラー内容**:
+  `Method is not exposed to Udon: 'Object.FindObjectOfType<DeckManager>()'`
+* **原因**:
+  * 一般のUnity C#では頻用される `Object.FindObjectOfType<T>()` や `GameObject.Find` などの全シーン走査・リフレクション系APIは、VRChatのUdon仮想マシン（U# VM）には安全面・パフォーマンス上の理由から公開（Expose）されていない。
+  * これをUdonSharpスクリプト内に記述すると、Playmode移行時にコンパイルエラーとして弾かれる。
+
+### ② UdonSharpにおける安全な参照解決の鉄則
+1. **エディタ生成時の静的バインド（最優先）**:
+   - `CardTableBuilder.cs` 等のエディタ拡張から `SerializedObject` 経由で参照（`deckManager`, `tableManager` 等）を直接割り当て、`UdonSharpEditorUtility.CopyProxyToUdon()` でUdonの変数メモリに焼き込む。
+2. **Udonサポート済み階層走査の利用（フォールバック）**:
+   - 親子階層のコンポーネント取得（`GetComponentInParent<T>()` や `GetComponentInChildren<T>()`、`transform.GetChild()`）はUdon VMで正式にサポートされているため、これらのみを安全なフォールバックとして利用する。
+
+
 
 
 
