@@ -1,5 +1,6 @@
 using UdonSharp;
 using UnityEngine;
+using TMPro;
 using VRC.SDKBase;
 using VRC.Udon;
 using VRC.Udon.Common;
@@ -17,9 +18,16 @@ namespace BoardGameKit.Core
         [Tooltip("デッキに含まれる総カード枚数（デフォルト54枚: トランプ52枚+Joker2枚）")]
         [SerializeField] private int defaultCardCount = 54; // 【★】ゲームに応じて変更可能
 
-        [Header("Visual Feedback (Optional)")]
+        [Header("Visual Feedback")]
         [Tooltip("山札の3Dオブジェクト（残枚数に応じてスケール変更等の演出用）")]
         [SerializeField] private Transform deckMeshTransform; // 【★】将来の厚み演出用
+
+        [Tooltip("山札の残り枚数表示用テキスト (TMP)")]
+        [SerializeField] private TMP_Text remainingText;
+
+        [Header("Card Object Pool")]
+        [Tooltip("山札が管理するカード実体配列（オブジェクトプール）")]
+        public CardController[] cardPool;
 
         // --- 同期変数 ---
         // 山札のカードID配列（インデックス 0 〜 deckTopIndex-1 が山札に残っているカード）
@@ -69,6 +77,21 @@ namespace BoardGameKit.Core
 
             deckTopIndex = totalCards;
             ShuffleInternal();
+
+            // プール内の全カードを山札位置へ整然と回収・初期化
+            if (cardPool != null)
+            {
+                Vector3 deckPos = transform.position;
+                Quaternion deckRot = transform.rotation;
+                for (int i = 0; i < cardPool.Length; i++)
+                {
+                    if (cardPool[i] != null)
+                    {
+                        cardPool[i].cardId = i;
+                        cardPool[i].ResetToDeck(deckPos, deckRot);
+                    }
+                }
+            }
 
             isInitialized = true;
             RequestSerialization();
@@ -139,6 +162,30 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
+        /// 指定されたスナップ枠（手元スロットなど）へカードプールから1枚配る（ドロー）
+        /// </summary>
+        /// <param name="targetZone">配備先のスナップ枠</param>
+        /// <returns>配備したカードID（山札切れや満杯の場合は -1）</returns>
+        public int DrawCardForZone(CardSnapZone targetZone)
+        {
+            if (targetZone == null || targetZone.IsOccupied()) return -1;
+
+            int drawnCardId = DrawCard();
+            if (drawnCardId == -1) return -1;
+
+            if (cardPool != null && drawnCardId >= 0 && drawnCardId < cardPool.Length)
+            {
+                CardController card = cardPool[drawnCardId];
+                if (card != null)
+                {
+                    targetZone.TrySnap(card);
+                }
+            }
+
+            return drawnCardId;
+        }
+
+        /// <summary>
         /// カードを捨て札に追加する
         /// </summary>
         public void DiscardCard(int cardId)
@@ -177,6 +224,20 @@ namespace BoardGameKit.Core
             deckTopIndex = totalActive;
             discardCount = 0;
 
+            // プール内の全カードを山札へ回収・初期化
+            if (cardPool != null)
+            {
+                Vector3 deckPos = transform.position;
+                Quaternion deckRot = transform.rotation;
+                for (int i = 0; i < cardPool.Length; i++)
+                {
+                    if (cardPool[i] != null)
+                    {
+                        cardPool[i].ResetToDeck(deckPos, deckRot);
+                    }
+                }
+            }
+
             ShuffleInternal();
             RequestSerialization();
             UpdateVisuals();
@@ -192,17 +253,19 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
-        /// 山札の見た目（厚みなど）を更新する内部処理
+        /// 山札の見た目（厚みや残数テキストなど）を更新する内部処理
         /// </summary>
         private void UpdateVisuals()
         {
-            if (deckMeshTransform == null) return;
-
-            if (defaultCardCount > 0)
+            if (deckMeshTransform != null)
             {
-                float ratio = (float)deckTopIndex / defaultCardCount;
-                Vector3 currentScale = deckMeshTransform.localScale;
-                deckMeshTransform.localScale = new Vector3(currentScale.x, Mathf.Max(0.01f, ratio), currentScale.z);
+                // 山札が0枚のときはメッシュを非表示、残数があれば表示（縦横比は維持）
+                deckMeshTransform.gameObject.SetActive(deckTopIndex > 0);
+            }
+
+            if (remainingText != null)
+            {
+                remainingText.text = $"山札: {deckTopIndex}枚";
             }
         }
 

@@ -40,6 +40,7 @@ namespace BoardGameKit.Editor
 
         // --- 幾何パラメータ ---
         public int slotCount = 5;            // スロット数
+        public int poolCardCount = 20;       // 山札の事前生成プール枚数 (5〜54)
         public float radius = 1.40f;         // プレイヤー中心からの半径 (m)
         public float angleStep = 36.0f;      // 各スロットの展開角度ステップ (度)
         public float tiltAngle = 12.0f;      // 手前見下ろしチルト角 (度)
@@ -53,10 +54,12 @@ namespace BoardGameKit.Editor
         /// <param name="count">スロット枚数 (1〜10)</param>
         /// <param name="customGap">下端の最小保証隙間 (m)</param>
         /// <param name="maxFovDeg">最大全体展開視野角 (度)</param>
-        public static ArcadeFieldConfig CreateOptimized(int count, float customGap = 0.08f, float maxFovDeg = 140.0f)
+        /// <param name="poolCount">山札の事前生成カード枚数 (5〜54)</param>
+        public static ArcadeFieldConfig CreateOptimized(int count, float customGap = 0.08f, float maxFovDeg = 140.0f, int poolCount = 20)
         {
             var config = new ArcadeFieldConfig();
             config.slotCount = Mathf.Clamp(count, 1, 10);
+            config.poolCardCount = Mathf.Clamp(poolCount, 1, 54);
             config.tiltAngle = 12.0f;
             config.slotHeightY = 0.85f;
             config.minBottomGap = Mathf.Max(customGap, 0.02f); // 最小2cm以上
@@ -1210,19 +1213,181 @@ namespace BoardGameKit.Editor
             soTable.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
 
-            // 4. 検証用大判カードをSeat 0の目の前に1枚配置
-            string cardPrefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
-            GameObject cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(cardPrefabPath);
-            if (cardPrefab != null)
+            // 4. 大判山札オブジェクト（DeckObject ＆ カードプール一括生成）
+            Vector3 deckPos = new Vector3(-1.10f, config.slotHeightY - 0.05f, 0f);
+            Quaternion deckRot = Quaternion.Euler(20f, 0, 0); // 手前に少し傾斜
+            GameObject deckObj = CreateArcadeDeckObject("DeckObject", deckPos, deckRot, tableManager, seatControllers, config.poolCardCount);
+            deckObj.transform.SetParent(root.transform, false);
+
+            DeckManager deckMgr = deckObj.GetComponent<DeckManager>();
+            if (deckMgr != null)
             {
-                GameObject cardInstance = (GameObject)PrefabUtility.InstantiatePrefab(cardPrefab);
-                cardInstance.transform.position = new Vector3(0, 0.95f, -1.8f); // Seat 0の手元近く
-                cardInstance.transform.rotation = Quaternion.Euler(0, 0, 0);
-                cardInstance.transform.SetParent(root.transform, true);
+                soTable.Update();
+                soTable.FindProperty("deckManager").objectReferenceValue = deckMgr;
+                soTable.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
             }
 
             Selection.activeGameObject = root;
-            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / 半径 {config.radius:F2}m / 角度 {config.angleStep:F1}度) の構築が完了しました！</color>");
+            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / カードプール {config.poolCardCount} 枚 / 半径 {config.radius:F2}m) の構築が完了しました！</color>");
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Spawn Deck in Scene (シーンに大判山札配置)", false, 26)]
+        public static void SpawnDeckInScene()
+        {
+            EnsureAllProgramAssets();
+
+            GameObject existing = GameObject.Find("DEBUG_ArcadeDeck");
+            if (existing != null) Undo.DestroyObjectImmediate(existing);
+
+            TableManager tm = Object.FindObjectOfType<TableManager>();
+            SeatController[] seats = Object.FindObjectsOfType<SeatController>();
+
+            Vector3 spawnPos = new Vector3(-0.9f, 0.9f, 1.8f);
+            Quaternion spawnRot = Quaternion.Euler(20f, 0, 0);
+
+            GameObject deck = CreateArcadeDeckObject("DEBUG_ArcadeDeck", spawnPos, spawnRot, tm, seats, 20);
+            Undo.RegisterCreatedObjectUndo(deck, "Spawn Deck in Scene");
+            Selection.activeGameObject = deck;
+
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> シーン内に大判山札オブジェクト（両面Quad・カードプール20枚完備）を配置しました！</color>");
+        }
+
+        private static GameObject CreateArcadeDeckObject(string name, Vector3 localPos, Quaternion localRot, TableManager tableManager, SeatController[] seats, int poolCount = 20)
+        {
+            GameObject deckRoot = new GameObject(name);
+            deckRoot.transform.localPosition = localPos;
+            deckRoot.transform.localRotation = localRot;
+
+            // 1. 山札メッシュ (横側面メッシュ不要・表裏両面Quad)
+            GameObject deckQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            deckQuad.name = "DeckMesh_Quad";
+            deckQuad.transform.SetParent(deckRoot.transform, false);
+            deckQuad.transform.localPosition = Vector3.zero;
+            deckQuad.transform.localRotation = Quaternion.identity;
+            deckQuad.transform.localScale = new Vector3(0.70f, 0.98f, 1.0f);
+
+            // 標準のMeshColliderを削除し、適切な厚みの当たり判定BoxColliderを付与
+            MeshCollider mc = deckQuad.GetComponent<MeshCollider>();
+            if (mc != null) Object.DestroyImmediate(mc);
+
+            BoxCollider deckCol = deckQuad.AddComponent<BoxCollider>();
+            deckCol.size = new Vector3(1.0f, 1.0f, 0.15f);
+            deckCol.center = Vector3.zero;
+
+            // マテリアル設定（両面シェーダー CardTwoSided）
+            string texturesDir = "Assets/Projects/Components/Textures/Cards";
+            string materialsDir = "Assets/Projects/Components/Materials";
+            string backTexPath = $"{texturesDir}/Card_Back_Default.png";
+            string matPath = $"{materialsDir}/Deck_TopBack.mat";
+
+            Texture2D backTex = AssetDatabase.LoadAssetAtPath<Texture2D>(backTexPath);
+            Shader shader = Shader.Find("BoardGameKit/CardTwoSided");
+            if (shader == null) shader = Shader.Find("Standard");
+
+            Material deckMat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (deckMat == null)
+            {
+                deckMat = new Material(shader);
+                AssetDatabase.CreateAsset(deckMat, matPath);
+            }
+            if (backTex != null)
+            {
+                deckMat.SetTexture("_MainTex", backTex);
+                deckMat.SetTexture("_BackTex", backTex);
+                deckMat.mainTexture = backTex;
+            }
+            deckQuad.GetComponent<MeshRenderer>().sharedMaterial = deckMat;
+
+            // 2. 山札上面の残数表示テキスト (TMP)
+            GameObject textObj = new GameObject("DeckCountText_TMP");
+            textObj.transform.SetParent(deckQuad.transform, false);
+            textObj.transform.localPosition = new Vector3(0, 0, -0.02f); // Quad表面の少し手前
+            textObj.transform.localRotation = Quaternion.Euler(0, 0, 0);
+            textObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+
+            TextMeshPro countTmp = textObj.AddComponent<TextMeshPro>();
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
+            if (jpFont != null)
+            {
+                countTmp.font = jpFont;
+                countTmp.fontSharedMaterial = jpFont.material;
+            }
+            countTmp.text = $"山札: {poolCount}枚";
+            countTmp.alignment = TextAlignmentOptions.Center;
+            countTmp.fontSize = 28f;
+            countTmp.color = new Color(1.0f, 0.95f, 0.6f, 1.0f); // 金色
+
+            // 3. DeckManager のアタッチ
+            DeckManager deckManager = deckRoot.AddUdonSharpComponent<DeckManager>();
+
+            // 4. カードオブジェクトプールの事前生成 (指定枚数の Card_01_YoungGirl をインスタンス化)
+            GameObject poolContainer = new GameObject("CardPoolContainer");
+            poolContainer.transform.SetParent(deckRoot.transform, false);
+            poolContainer.transform.localPosition = Vector3.zero;
+
+            string cardPrefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
+            GameObject cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(cardPrefabPath);
+            if (cardPrefab == null)
+            {
+                cardPrefab = BuildYoungGirlCardPrefab();
+            }
+
+            CardController[] poolCards = new CardController[poolCount];
+            for (int c = 0; c < poolCount; c++)
+            {
+                GameObject cardInstance = (GameObject)PrefabUtility.InstantiatePrefab(cardPrefab);
+                cardInstance.name = $"PoolCard_{c:D2}";
+                cardInstance.transform.SetParent(poolContainer.transform, false);
+
+                CardController cardCtrl = cardInstance.GetComponent<CardController>();
+                if (cardCtrl != null)
+                {
+                    cardCtrl.cardId = c;
+                    // 初期状態: 山札位置に重なって非表示待機
+                    cardCtrl.ResetToDeck(localPos, localRot);
+                    poolCards[c] = cardCtrl;
+                }
+            }
+
+            // DeckManager 設定
+            SerializedObject soDeck = new SerializedObject(deckManager);
+            soDeck.FindProperty("defaultCardCount").intValue = poolCount;
+            soDeck.FindProperty("deckMeshTransform").objectReferenceValue = deckQuad.transform;
+            soDeck.FindProperty("remainingText").objectReferenceValue = countTmp;
+            SerializedProperty propPool = soDeck.FindProperty("cardPool");
+            propPool.arraySize = poolCount;
+            for (int c = 0; c < poolCount; c++)
+            {
+                propPool.GetArrayElementAtIndex(c).objectReferenceValue = poolCards[c];
+            }
+            soDeck.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(deckManager);
+
+            // 5. DeckInteractHandler のアタッチ (3D直接インタラクト)
+            DeckInteractHandler deckHandler = deckQuad.AddUdonSharpComponent<DeckInteractHandler>();
+            SerializedObject soHandler = new SerializedObject(deckHandler);
+            soHandler.FindProperty("tableManager").objectReferenceValue = tableManager;
+            soHandler.FindProperty("deckManager").objectReferenceValue = deckManager;
+            if (seats != null && seats.Length > 0)
+            {
+                SerializedProperty propSeats = soHandler.FindProperty("seatControllers");
+                propSeats.arraySize = seats.Length;
+                for (int s = 0; s < seats.Length; s++)
+                {
+                    propSeats.GetArrayElementAtIndex(s).objectReferenceValue = seats[s];
+                }
+            }
+            soHandler.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(deckHandler);
+
+            UdonBehaviour udonBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(deckHandler);
+            if (udonBacking != null)
+            {
+                udonBacking.interactText = "カードを引く (Draw)";
+            }
+
+            return deckRoot;
         }
 
         private static GameObject CreateArcadeSnapSlot(string name, Vector3 localPos, Quaternion localRot)
@@ -1257,17 +1422,18 @@ namespace BoardGameKit.Editor
             soZone.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(snapZone);
 
-        return slotObj;
+            return slotObj;
         }
     }
 
     /// <summary>
     /// プレイヤー包囲型円弧スロット空間を直感的なGUIで設計・生成する専用エディタウィンドウ。
-    /// スロット枚数（1〜10枚）・スキマ・チルト角をスライダーで自由に変更し、ワンクリックでシーンへ反映する。
+    /// スロット枚数（1〜10枚）・カードプール枚数・スキマ・チルト角をスライダーで自由に変更し、ワンクリックでシーンへ反映する。
     /// </summary>
     public class ArcadeFieldBuilderWindow : EditorWindow
     {
         [SerializeField] private int slotCount = 5;
+        [SerializeField] private int poolCardCount = 20;
         [SerializeField] private float minBottomGapCm = 8.0f;
         [SerializeField] private float tiltAngle = 12.0f;
         [SerializeField] private float slotHeightY = 0.85f;
@@ -1279,7 +1445,7 @@ namespace BoardGameKit.Editor
         public static void OpenWindow()
         {
             var window = GetWindow<ArcadeFieldBuilderWindow>("Arcade Field Builder");
-            window.minSize = new Vector2(380, 440);
+            window.minSize = new Vector2(380, 480);
             window.Show();
         }
 
@@ -1293,8 +1459,9 @@ namespace BoardGameKit.Editor
             EditorGUILayout.Space(8);
 
             // --- 1. 基本パラメータ設定 ---
-            EditorGUILayout.LabelField("【スロット構成パラメータ】", EditorStyles.boldLabel);
+            EditorGUILayout.LabelField("【スロット ＆ カードプール設定】", EditorStyles.boldLabel);
             slotCount = EditorGUILayout.IntSlider("手札スロット数 (枚)", slotCount, ArcadeFieldConfig.MinSlotCount, ArcadeFieldConfig.MaxSlotCount);
+            poolCardCount = EditorGUILayout.IntSlider("山札プール枚数 (枚)", poolCardCount, 5, 54);
             minBottomGapCm = EditorGUILayout.Slider("下端の最小スキマ (cm)", minBottomGapCm, ArcadeFieldConfig.MinGapCm, ArcadeFieldConfig.MaxGapCm);
             tiltAngle = EditorGUILayout.Slider("手前チルト見下ろし角 (度)", tiltAngle, ArcadeFieldConfig.MinTiltAngle, ArcadeFieldConfig.MaxTiltAngle);
             slotHeightY = EditorGUILayout.Slider("スロット基準高さ Y (m)", slotHeightY, ArcadeFieldConfig.MinHeightY, ArcadeFieldConfig.MaxHeightY);
@@ -1303,7 +1470,7 @@ namespace BoardGameKit.Editor
             EditorGUILayout.Space(12);
 
             // --- 2. 幾何計算プレビュー ---
-            ArcadeFieldConfig previewConfig = ArcadeFieldConfig.CreateOptimized(slotCount, minBottomGapCm * 0.01f, maxFovDeg);
+            ArcadeFieldConfig previewConfig = ArcadeFieldConfig.CreateOptimized(slotCount, minBottomGapCm * 0.01f, maxFovDeg, poolCardCount);
             previewConfig.tiltAngle = tiltAngle;
             previewConfig.slotHeightY = slotHeightY;
 
@@ -1315,6 +1482,7 @@ namespace BoardGameKit.Editor
                 $"・スロット間ステップ角度: {previewConfig.angleStep:F1} 度\n" +
                 $"・全体展開視野角: {totalArcDeg:F1} 度 (正面左右 ±{totalArcDeg * 0.5f:F1}度)\n" +
                 $"・最も狭まる下端スキマ: {minBottomGapCm:F1} cm (完全保証)\n" +
+                $"・カードプール枚数: {poolCardCount} 枚 (オブジェクトプール事前生成)\n" +
                 $"・カード寸法: 幅 {ArcadeFieldConfig.CardDimension.x * 100:F0}cm × 高 {ArcadeFieldConfig.CardDimension.y * 100:F0}cm (大判)";
 
             EditorGUILayout.HelpBox(previewInfo, MessageType.Info);
@@ -1323,7 +1491,7 @@ namespace BoardGameKit.Editor
 
             // --- 3. 生成ボタン ---
             GUI.backgroundColor = new Color(0.2f, 0.9f, 0.5f);
-            if (GUILayout.Button($"シーン上に空間を自動生成 (手札 {slotCount} 枠)", GUILayout.Height(40)))
+            if (GUILayout.Button($"シーン上に空間を自動生成 (手札 {slotCount} 枠 / プール {poolCardCount} 枚)", GUILayout.Height(40)))
             {
                 CardTableBuilder.BuildDynamicArcadeField(previewConfig);
             }

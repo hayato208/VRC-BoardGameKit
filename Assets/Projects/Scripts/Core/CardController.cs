@@ -13,6 +13,10 @@ namespace BoardGameKit.Core
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class CardController : UdonSharpBehaviour
     {
+        [Header("Card Identity")]
+        [Tooltip("カードの一意識別ID (0〜N-1)")]
+        public int cardId = 0;
+
         [Header("Physics Settings")]
         [Tooltip("手で持っている間も isKinematic = true を維持するか（暴れ・ガタつき完全防止）")]
         public bool keepKinematicWhileHeld = true;
@@ -76,6 +80,7 @@ namespace BoardGameKit.Core
                 rb.isKinematic = true;
             }
 
+            gameObject.SetActive(true);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カード自身が指定位置へ吸着整列しました: {gameObject.name}");
         }
 
@@ -93,6 +98,34 @@ namespace BoardGameKit.Core
             }
 
             Debug.Log($"[VRC-BoardGameKit] [CardController] カードが空中でピタッと完全静止しました: {gameObject.name}");
+        }
+
+        /// <summary>
+        /// ゲームリセット時に山札の位置へ回収・初期化する命令。
+        /// 以前収まっていたスナップ枠を安全に解放し、山札の待機位置へ戻す。
+        /// </summary>
+        public void ResetToDeck(Vector3 deckPos, Quaternion deckRot)
+        {
+            if (currentZone != null)
+            {
+                currentZone.ReleaseCard(this);
+                currentZone = null;
+            }
+
+            ClearAllCandidates();
+
+            transform.position = deckPos;
+            transform.rotation = deckRot;
+
+            if (rb != null)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.isKinematic = true;
+            }
+
+            gameObject.SetActive(false);
+            Debug.Log($"[VRC-BoardGameKit] [CardController] カードを山札へ回収・初期化しました: {gameObject.name} (ID: {cardId})");
         }
 
         #endregion
