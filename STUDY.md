@@ -810,13 +810,54 @@ Unity組み込みの3D形状（プリミティブ）は、一見どれも「板�
   `Method is not exposed to Udon: 'Object.FindObjectOfType<DeckManager>()'`
 * **原因**:
   * 一般のUnity C#では頻用される `Object.FindObjectOfType<T>()` や `GameObject.Find` などの全シーン走査・リフレクション系APIは、VRChatのUdon仮想マシン（U# VM）には安全面・パフォーマンス上の理由から公開（Expose）されていない。
-  * これをUdonSharpスクリプト内に記述すると、Playmode移行時にコンパイルエラーとして弾かれる。
-
 ### ② UdonSharpにおける安全な参照解決の鉄則
 1. **エディタ生成時の静的バインド（最優先）**:
    - `CardTableBuilder.cs` 等のエディタ拡張から `SerializedObject` 経由で参照（`deckManager`, `tableManager` 等）を直接割り当て、`UdonSharpEditorUtility.CopyProxyToUdon()` でUdonの変数メモリに焼き込む。
 2. **Udonサポート済み階層走査の利用（フォールバック）**:
    - 親子階層のコンポーネント取得（`GetComponentInParent<T>()` や `GetComponentInChildren<T>()`、`transform.GetChild()`）はUdon VMで正式にサポートされているため、これらのみを安全なフォールバックとして利用する。
+
+---
+
+## 44. Unityエディタメニュー（MenuItem）の階層化・重複排除・デバッグ分離設計
+
+### ① 拡張機能乱立の根本原因と構造的課題
+* **機能追加ごとの場当たり登録**:
+  * 機能検証やデバッグ用ボタン（単体カード配置、スナップ検証枠、Transformダンプ、テスト用クリックボタン等）を開発の都度 `Tools/VRC-BoardGameKit/` の直下にフラットに追加していたため、メニュー項目が20個近く乱立し視認性が著しく悪化していた。
+* **日英表記の二重登録**:
+  * 「英語名」と「日本語名」の2つの `[MenuItem]` を同一メソッドに並列指定していた箇所が複数存在し、同じ機能が2重にメニューに表示されていた。
+
+### ② 階層的サブメニュー設計のベストプラクティス
+* ユーザーの利用目的（GUI操作、クイック構築、便利機能、開発デバッグ）に応じて明確に分類し、`priority` を使って順序を整理：
+  ```text
+  Tools / VRC-BoardGameKit /
+  ├── 🎛️ Dynamic Arcade Field Builder (円弧空間ビルダー GUI)   [priority 1]
+  ├── 🃏 Deck & Card Editor (山札・カード画像設定 GUI)          [priority 2]
+  ├── --------------------------------------------------
+  ├── 🏗️ Quick Setup (プリセット構築) /
+  │   ├── 円弧スロット空間構築 (手札5枠: 標準)                  [priority 10]
+  │   ├── 円弧スロット空間構築 (手札3枠: コンパクト)            [priority 11]
+  │   ├── 円弧スロット空間構築 (手札4枠: 左右対称)              [priority 12]
+  │   ├── 円弧スロット空間構築 (手札7枠: ワイド)                [priority 13]
+  │   └── クラシック円卓配置 (4-Player Classic Table)           [priority 20]
+  ├── 📦 Utilities (ユーティリティ) /
+  │   ├── NotoSansJPフォントを一括再適用 (Re-apply TMP Font)     [priority 30]
+  │   ├── 大判山札をシーン配置 (Spawn Deck)                     [priority 31]
+  │   ├── 大判カードPrefab生成 (Build Card Prefab)              [priority 32]
+  │   ├── クラシック円卓Prefabを再ビルド (Rebuild Table Prefab)  [priority 33]
+  │   └── .unitypackage を書き出し (Export Package)             [priority 34]
+  └── 🧪 Debug & Tests (デバッグ・検証) /
+      ├── スナップ検証エリアをシーン配置 (Spawn Snap Test Area)  [priority 50]
+      ├── 単体テストカードをシーン配置 (Spawn Test Card)        [priority 51]
+      ├── デバッグ用クリックボタン配置 (Spawn Click Test Buttons)[priority 52]
+      ├── シーン上のテーブル構造をダンプ (Dump Table Transforms) [priority 53]
+      └── シーン上のテーブルをPrefab保存 (Save Scene to Prefab)  [priority 54]
+  ```
+
+### ③ 設計上の効果
+1. **トップレベルの視認性向上**: メインツールである2大GUIウィンドウ（円弧空間ビルダー・山札カード画像設定）が最優先で目に入る。
+2. **誤操作の防止**: 開発・テスト用の検証機能が `Debug & Tests` サブメニューに隔離され、通常利用時の誤爆を防止。
+3. **二重登録の完全解消**: 日英併記スタイル（「日本語名 (English Name)」）に統一し、メニュー項目数を半減・最適化。
+4. **パッケージ配布時の整合性**: ユーザーがBOOTHやVPMから導入した際にも迷わず直感的に使えるプロクオリティのメニュー体系を実現。
 
 
 

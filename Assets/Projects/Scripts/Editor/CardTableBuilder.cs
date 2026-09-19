@@ -107,7 +107,7 @@ namespace BoardGameKit.Editor
     /// </summary>
     public static class CardTableBuilder
     {
-        [MenuItem("Tools/VRC-BoardGameKit/Setup 4-Player Table in Scene (From Prefab)")]
+        [MenuItem("Tools/VRC-BoardGameKit/Quick Setup/クラシック円卓配置 (4-Player Classic Table)", false, 20)]
         public static void PlaceTableFromPrefab()
         {
             string prefabPath = "Assets/Projects/Prefabs/CardTable_4Players.prefab";
@@ -143,7 +143,7 @@ namespace BoardGameKit.Editor
             Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> Prefabからシーンへカードテーブルを配置しました！</color>");
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Save Scene Table to Prefab & Dump Transforms")]
+        [MenuItem("Tools/VRC-BoardGameKit/Debug & Tests/シーン上のテーブルをPrefab保存 (Save Scene to Prefab)", false, 54)]
         public static void SaveSceneTableToPrefab()
         {
             GameObject table = GameObject.Find("CardTable_4Players");
@@ -171,7 +171,7 @@ namespace BoardGameKit.Editor
             DumpTableHierarchyTransforms();
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Dump Table Hierarchy Transforms")]
+        [MenuItem("Tools/VRC-BoardGameKit/Debug & Tests/シーン上のテーブル構造をダンプ (Dump Table Transforms)", false, 53)]
         public static void DumpTableHierarchyTransforms()
         {
             GameObject table = GameObject.Find("CardTable_4Players");
@@ -202,7 +202,7 @@ namespace BoardGameKit.Editor
             }
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Re-apply NotoSansJP Font to All TMP in Scene & Prefab")]
+        [MenuItem("Tools/VRC-BoardGameKit/Utilities/NotoSansJPフォントを一括再適用 (Re-apply TMP Font)", false, 30)]
         public static void ReapplyNotoSansJPFontToAllTMP()
         {
             string fontPath = "Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset";
@@ -249,7 +249,7 @@ namespace BoardGameKit.Editor
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Spawn Debug Click Test Buttons in Scene")]
+        [MenuItem("Tools/VRC-BoardGameKit/Debug & Tests/デバッグ用クリックボタン配置 (Spawn Click Test Buttons)", false, 52)]
         public static void SpawnDebugClickButtons()
         {
             EnsureAllProgramAssets();
@@ -340,7 +340,7 @@ namespace BoardGameKit.Editor
             Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> デバッグ用クリック検知ボタン（3Dキューブ＆UIボタン）をスポーン位置の正面に生成しました！</color>");
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Rebuild & Save Table Prefabs (From Code Defaults)")]
+        [MenuItem("Tools/VRC-BoardGameKit/Utilities/クラシック円卓Prefabを再ビルド (Rebuild Table Prefab)", false, 33)]
         public static void BuildAndSaveTablePrefab()
         {
             // 0. 全UdonSharpスクリプトのProgramAssetを自動確保・同期
@@ -819,8 +819,7 @@ namespace BoardGameKit.Editor
             return false;
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Build Young Girl Card Prefab", false, 20)]
-        [MenuItem("Tools/VRC-BoardGameKit/幼い少女カードPrefab生成", false, 21)]
+        [MenuItem("Tools/VRC-BoardGameKit/Utilities/大判カードPrefab生成 (Build Card Prefab)", false, 32)]
         public static GameObject BuildYoungGirlCardPrefab()
         {
             EnsureAllProgramAssets();
@@ -942,8 +941,7 @@ namespace BoardGameKit.Editor
             return savedPrefab;
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Spawn Young Girl Card in Scene", false, 22)]
-        [MenuItem("Tools/VRC-BoardGameKit/シーンに幼い少女カード配置", false, 23)]
+        [MenuItem("Tools/VRC-BoardGameKit/Debug & Tests/単体テストカードをシーン配置 (Spawn Test Card)", false, 51)]
         public static void SpawnYoungGirlCardInScene()
         {
             string prefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
@@ -974,8 +972,7 @@ namespace BoardGameKit.Editor
             Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> シーン上の目の前に幼い少女カード (幅70cm x 高さ98cm) を配置しました！</color>");
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Spawn Snap Test Area in Scene", false, 24)]
-        [MenuItem("Tools/VRC-BoardGameKit/シーンにスナップ検証エリア配置", false, 25)]
+        [MenuItem("Tools/VRC-BoardGameKit/Debug & Tests/スナップ検証エリアをシーン配置 (Spawn Snap Test Area)", false, 50)]
         public static void SpawnSnapTestAreaInScene()
         {
             EnsureAllProgramAssets();
@@ -1049,26 +1046,25 @@ namespace BoardGameKit.Editor
             return slotObj;
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Build Dynamic Arcade Field in Scene (動的円弧スロット空間生成)", false, 9)]
-        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札5枠: 標準)", false, 10)]
+        [MenuItem("Tools/VRC-BoardGameKit/Quick Setup/円弧スロット空間構築 (手札5枠: 標準)", false, 10)]
         public static void BuildDynamicArcadeFieldDefault()
         {
             BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(5));
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札3枠: コンパクト)", false, 11)]
+        [MenuItem("Tools/VRC-BoardGameKit/Quick Setup/円弧スロット空間構築 (手札3枠: コンパクト)", false, 11)]
         public static void BuildDynamicArcadeField3()
         {
             BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(3));
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札4枠: 左右対称)", false, 12)]
+        [MenuItem("Tools/VRC-BoardGameKit/Quick Setup/円弧スロット空間構築 (手札4枠: 左右対称)", false, 12)]
         public static void BuildDynamicArcadeField4()
         {
             BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(4));
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札7枠: ワイド)", false, 13)]
+        [MenuItem("Tools/VRC-BoardGameKit/Quick Setup/円弧スロット空間構築 (手札7枠: ワイド)", false, 13)]
         public static void BuildDynamicArcadeField7()
         {
             BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(7));
@@ -1256,7 +1252,7 @@ namespace BoardGameKit.Editor
             Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / カードプール {config.poolCardCount} 枚 / 半径 {config.radius:F2}m / 手元ドローUI完備) の構築が完了しました！</color>");
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Spawn Deck in Scene (シーンに大判山札配置)", false, 26)]
+        [MenuItem("Tools/VRC-BoardGameKit/Utilities/大判山札をシーン配置 (Spawn Deck)", false, 31)]
         public static void SpawnDeckInScene()
         {
             EnsureAllProgramAssets();
