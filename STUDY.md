@@ -758,6 +758,29 @@ Unity組み込みの3D形状（プリミティブ）は、一見どれも「板�
   1. `DeckManager.GetRemainingCount()` は `isInitialized`（初期化完了フラグ）が false の間、同期変数の `0` ではなく `defaultCardCount` をフォールバック返却する。
   2. `DeckInteractHandler` はインスペクタ参照が空の場合でも `GetComponentInParent<DeckManager>()` で自己解決し、常に正しい初期残数テキストを表示する。
 
+---
+
+## 41. 手元パーソナルUIドローボタン（DrawCardButton）のハイブリッドUI設計
+
+### ① 背景と課題
+* 従来はテーブル中央脇にある山札（`DeckObject`）を直接クリック（Interact）してドローを行っていたが、プレイヤーの位置やVR空間のリーチによっては山札までの距離が遠く、操作しづらい場合があった。
+* プレイヤーが自分専用のコックピット空間（`PersonalHandArea`）の手元から、最小限の身体動作・視線移動でカードを引けるUIが求められた。
+
+### ② DEBUG_UI_Canvas仕様に準拠したハイブリッドUI構造
+* **WorldSpace Canvas ＋ VRCUiShape ＋ BoxCollider ＋ Udon Interact**:
+  * 一般のuGUI（`GraphicRaycaster` / `Button.onClick` のみ）はPrefab保存時の参照外れやRaycast遮断トラブルが多い。
+  * `DEBUG_UI_Canvas` で確立したハイブリッド構造を採用し、`Image` + `Button` による2D UIの美しいデザイン（エメラルドグリーン基調、角丸・バイリンガル文字）を維持しながら、`BoxCollider (isTrigger)` と `UdonSharpBehaviour.Interact()` を併用。
+  * これにより、VRコントローラーのレーザーポインターでもデスクトップのマウス視線・クリックでも100%確実に反応する堅牢性を担保。
+
+### ③ パーソナル空間連動（Zero-Traffic ライフサイクル）
+* 各座席の `PersonalHandArea`（`SlotContainer`）配下にUI Canvasを生成。
+* プレイヤーが参加登録キューブを押して着席した時のみ手札スロットと一緒に手元（`Y = 0.50m`, `Z = 0.77m`, チルト `40°`）に出現し、離席時には自動で非表示となるため、無駄な視界占有や他人による誤操作を完全に防止する。
+
+### ④ 空きスロット自動検索と吸着配備
+* ボタン押下時、`linkedHandArea.GetFirstEmptySlot()` で最も若い空きスロット（スロット0、1、2…）を動的に検索。
+* `DeckManager.DrawCardForZone(emptySlot)` を呼び出すことで、山札からカードが手元の空き枠へ瞬時に配備されるシームレスな操作体験を実現。
+
+
 
 
 

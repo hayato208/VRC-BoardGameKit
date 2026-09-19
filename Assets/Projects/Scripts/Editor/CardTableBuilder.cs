@@ -760,6 +760,7 @@ namespace BoardGameKit.Editor
                 "Assets/Projects/Scripts/Core/CardSnapZone.cs",
                 "Assets/Projects/Scripts/Core/CardController.cs",
                 "Assets/Projects/Scripts/Core/PersonalHandArea.cs",
+                "Assets/Projects/Scripts/Core/DrawCardButton.cs",
                 "Assets/Projects/Scripts/Plugins/RulePluginBase.cs"
             };
 
@@ -1121,6 +1122,7 @@ namespace BoardGameKit.Editor
             float[] seatYaws = { 0f, 180f, -90f, 90f };
 
             SeatController[] seatControllers = new SeatController[4];
+            DrawCardButton[] drawButtons = new DrawCardButton[4];
 
             for (int i = 0; i < 4; i++)
             {
@@ -1177,6 +1179,15 @@ namespace BoardGameKit.Editor
                     snapZones[s] = zone;
                 }
 
+                // C. パーソナル操作パネル (WorldSpace Canvas + VRCUiShape + BoxCollider + DrawCardButton)
+                Vector3 uiPos = new Vector3(0f, Mathf.Max(config.slotHeightY - 0.35f, 0.50f), config.radius * 0.55f);
+                Quaternion uiRot = Quaternion.Euler(40f, 0f, 0f); // 手前見下ろし40度
+                GameObject personalUiObj = CreatePersonalUICanvas($"Personal_UI_Canvas_Seat{i}", uiPos, uiRot, handArea, null);
+                personalUiObj.transform.SetParent(slotContainer.transform, false);
+
+                DrawCardButton drawBtn = personalUiObj.GetComponentInChildren<DrawCardButton>();
+                drawButtons[i] = drawBtn;
+
                 SerializedObject soHandArea = new SerializedObject(handArea);
                 soHandArea.FindProperty("slotCount").intValue = slotCount;
                 soHandArea.FindProperty("radius").floatValue = config.radius;
@@ -1227,10 +1238,22 @@ namespace BoardGameKit.Editor
                 soTable.FindProperty("deckManager").objectReferenceValue = deckMgr;
                 soTable.ApplyModifiedProperties();
                 UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
+
+                // 各座席の DrawCardButton に deckMgr をバインド
+                for (int i = 0; i < 4; i++)
+                {
+                    if (drawButtons[i] != null)
+                    {
+                        SerializedObject soDrawBtn = new SerializedObject(drawButtons[i]);
+                        soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+                        soDrawBtn.ApplyModifiedProperties();
+                        UdonSharpEditorUtility.CopyProxyToUdon(drawButtons[i]);
+                    }
+                }
             }
 
             Selection.activeGameObject = root;
-            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / カードプール {config.poolCardCount} 枚 / 半径 {config.radius:F2}m) の構築が完了しました！</color>");
+            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / カードプール {config.poolCardCount} 枚 / 半径 {config.radius:F2}m / 手元ドローUI完備) の構築が完了しました！</color>");
         }
 
         [MenuItem("Tools/VRC-BoardGameKit/Spawn Deck in Scene (シーンに大判山札配置)", false, 26)]
@@ -1252,6 +1275,72 @@ namespace BoardGameKit.Editor
             Selection.activeGameObject = deck;
 
             Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> シーン内に大判山札オブジェクト（両面Quad・カードプール20枚完備）を配置しました！</color>");
+        }
+
+        private static GameObject CreatePersonalUICanvas(string name, Vector3 localPos, Quaternion localRot, PersonalHandArea handArea, DeckManager deckMgr)
+        {
+            GameObject canvasObj = new GameObject(name);
+            canvasObj.transform.localPosition = localPos;
+            canvasObj.transform.localRotation = localRot;
+            canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+
+            Canvas canvas = canvasObj.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvasObj.AddComponent<GraphicRaycaster>();
+            canvasObj.AddComponent<VRCUiShape>();
+
+            RectTransform canvasRt = canvasObj.GetComponent<RectTransform>();
+            canvasRt.sizeDelta = new Vector2(30f, 16f);
+
+            // UIボタン (WorldSpace UI Button + BoxCollider)
+            GameObject btnObj = new GameObject("Draw_Button");
+            btnObj.transform.SetParent(canvasObj.transform, false);
+            btnObj.transform.localPosition = Vector3.zero;
+
+            Image img = btnObj.AddComponent<Image>();
+            img.color = new Color(0.10f, 0.50f, 0.28f, 0.95f); // 視認性の高いエメラルドグリーン
+            img.raycastTarget = true;
+
+            Button btn = btnObj.AddComponent<Button>();
+            RectTransform btnRt = btnObj.GetComponent<RectTransform>();
+            btnRt.sizeDelta = new Vector2(28f, 14f);
+
+            BoxCollider btnCol = btnObj.AddComponent<BoxCollider>();
+            btnCol.size = new Vector3(28f, 14f, 0.2f);
+            btnCol.isTrigger = true;
+
+            DrawCardButton drawUdon = btnObj.AddUdonSharpComponent<DrawCardButton>();
+            UdonBehaviour udonUIBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(drawUdon);
+            if (udonUIBacking != null)
+            {
+                udonUIBacking.interactText = "カードを引く (Draw)";
+            }
+
+            SerializedObject soBtn = new SerializedObject(drawUdon);
+            soBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
+            if (deckMgr != null)
+            {
+                soBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+            }
+            soBtn.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(drawUdon);
+
+            // ボタンテキスト (TMP NotoSansJP)
+            GameObject textObj = new GameObject("Text (TMP)");
+            textObj.transform.SetParent(btnObj.transform, false);
+            textObj.transform.localPosition = Vector3.zero;
+            TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
+            if (jpFont != null) { tmp.font = jpFont; tmp.fontSharedMaterial = jpFont.material; }
+            tmp.text = "カードを引く\n<size=70%>Draw Card</size>";
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = Color.white;
+            tmp.fontSize = 3.8f;
+            tmp.raycastTarget = false;
+            RectTransform textRt = textObj.GetComponent<RectTransform>();
+            textRt.sizeDelta = new Vector2(28f, 14f);
+
+            return canvasObj;
         }
 
         private static GameObject CreateArcadeDeckObject(string name, Vector3 localPos, Quaternion localRot, TableManager tableManager, SeatController[] seats, int poolCount = 20)
