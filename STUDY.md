@@ -860,6 +860,47 @@ Tools / VRC-BoardGameKit /
 4. **クラス二重定義（CS0101）の根本解消**:
    - 配布用スクリプト `PackageExporter.cs` の旧パス（`test/Test Project/Assets/Editor/`）を整理し、`Assets/Projects/Scripts/Editor/` に一本化して重複コンパイルエラーを根絶。
 
+---
+
+## 46. クリック選択（Interact）方式への移行とTell Don't Ask浮上演出 (T36)
+
+### ① 手持ちPickupからネイティブInteractへの移行動機
+*   **従来の課題**: 物理的なVRCPickupによる「手で掴んで運ぶ」方式は、VR内での自由度が高い反面、カード同士の衝突やラグ、意図しないドロップや掴み損ねによる操作ストレスが存在した。
+*   **クリック操作の導入**: 視線を合わせてクリック（VRChatネイティブ `Interact()`）するだけで手札が選択され、場に出る操作体系へ移行することで、デスクトップ/VR問わず誰でも確実・快適に操作できるUXを実現する。
+*   **物理基盤の温存**: `VRCPickup.pickupable = false` により手持ちのみを無効化しつつ、Rigidbody/スナップ/空中静止のコード資産はすべて温存。将来的な物理モードとの併用や切り替えにも柔軟に対応可能。
+
+### ② CardSlotController除去とCardControllerへの責務一本化
+*   カード自身に旧来アタッチされていた `CardSlotController` は、以前のクリック検証用スクリプトであり、責務が分散していた。
+*   T36により `CardSlotController` をプレハブおよび自動生成ロジックから完全除去。カードの姿勢・視覚・操作通知の全責務を中核の `CardController` へ集約した。
+
+### ③ Tell, Don't Ask原則に基づく15cm浮上演出（`SetSelectedVisual`）
+*   **通常姿勢のSSOT保持**: カードがスロットに吸着（`SnapTo`）された際、その目標位置・回転を `normalPosition`, `normalRotation` として内部保持。
+*   **直感的なポップアップ演出**: 選択時（`SetSelectedVisual(true)`）は、カードのローカル上方向（`transform.up`、斜めスロットの板に沿った上方向）へ15cm（`0.15m`）スッと飛び出る。これにより、手札スタンドからカードをピコッと引き抜いたような直感的な「選択中」の見た目を実現。
+*   **自律姿勢制御**: 外部が直接Transformを書き換えるのではなく、`CardController` 自身が状態フラグ（`isSelected`）に応じて自己の姿勢を復元・切り替えるため、同期ズレや位置破綻が一切起きない。
+
+---
+
+## 47. 中央プレイエリアのスタック配列機構と即時プレイ（Immediate Mode）の実装 (T37)
+
+### ① 単一スロットからスタック配列（`allowStack`）への進化理由
+*   **課題の発見**: 手元スロットは「1枠に1枚」の排他管理だが、中央プレイエリア（場のマス目）はトランプ、大富豪、UNO、TCGなど、あらゆるゲームにおいて「カードが順番に出され、上に積み重なっていく（スタック）」場所である。単一スロットのままだと2枚目以降のカードが受入拒否される致命的欠陥が生じる。
+*   **Tell, Don't Ask原則に基づくスロット拡張**: `CardSnapZone` 自身に `public bool allowStack` 設定と、出されたカードを順番に格納する配列 `CardController[] stackedCards`（最大64枚）を新設。スロット自身がスタック許容か単一枠かを自己判定する設計とした。
+
+### ② 法線方向2mm浮上によるZファイティング（重なりチラつき）完全防止
+*   **現象**: 同一座標・同一回転の平面メッシュ（Quad）が複数重なると、GPU深度バッファの精度限界により激しいチラつき（Zファイティング）が発生する。
+*   **解決策**: スタックされたカード枚数（`stackedCount`）に応じ、Quadの表面法線方向（手前: `-transform.forward`）へ1枚あたり `2mm (0.002m)` ずつ浮かせて `SnapTo` を命じる数理モデルを採用：
+    $$\text{TargetPosition} = \text{SlotPosition} - (\text{SlotForward} \times (\text{StackedCount} \times 0.002))$$
+*   これにより、トランプの山のように自然で美麗な物理的厚みを持った重ね置きが実現した。
+
+### ③ 即時プレイ（Immediate Mode）のイベントフロー
+1. **クリック検知**: カードの `Interact()` ➔ `TableManager.OnCardClicked(card)`
+2. **モード分岐**: `playMode == CardPlayMode.Immediate` により即時処理
+3. **所有権取得**: `Networking.SetOwner(localPlayer, card.gameObject)` で操作者に同期権限を移行
+4. **元枠解放**: `card.currentZone.ReleaseCard(card)` により手元スロットを解放（手元スロットは即座に空き状態となり、次回のドローが可能に）
+5. **中央吸着**: `centerPlayZone.TrySnap(card)` によりカード自身が中央の最前面へ2mmオフセットで整列移動
+
+
+
 
 
 

@@ -8,12 +8,28 @@ using BoardGameKit.Plugins;
 namespace BoardGameKit.Core
 {
     /// <summary>
+    /// カードのプレイ方式
+    /// </summary>
+    public enum CardPlayMode
+    {
+        Immediate,    // 1クリックで即座に場へプレイ（BOOTH配布版）
+        MultiSelect   // 複数選択して手元ボタンでプレイ（開発・オリジナルルール版）
+    }
+
+    /// <summary>
     /// テーブル全体の進行・ネットワーク同期および座席・山札・手札の統括マネージャー。
     /// 2層アーキテクチャに基づき、同期変数を本クラスに集約し、固有ルールはRulePluginBaseに委譲する。
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class TableManager : UdonSharpBehaviour
     {
+        [Header("Play Settings")]
+        [Tooltip("カードのプレイ方式（Immediate: 1クリックで即座に場へ / MultiSelect: 複数選択して手元ボタンで場へ）")]
+        public CardPlayMode playMode = CardPlayMode.Immediate;
+
+        [Tooltip("中央の場のプレイエリア（スナップ枠）")]
+        public CardSnapZone centerPlayZone;
+
         [Header("Core Subsystem References")]
         [Tooltip("山札マネージャーへの参照")]
         [SerializeField] private DeckManager deckManager;
@@ -212,6 +228,72 @@ namespace BoardGameKit.Core
 
         public void OnPlayerLeftSeat(int seatIndex, int playerId)
         {
+        }
+
+        /// <summary>
+        /// カードがクリック（Interact）されたときの通知ハンドラ
+        /// </summary>
+        /// <param name="card">クリックされたカード</param>
+        public void OnCardClicked(CardController card)
+        {
+            if (card == null) return;
+            Debug.Log($"[VRC-BoardGameKit] [TableManager] カードがクリックされました: {card.gameObject.name} (ID: {card.cardId}, PlayMode: {playMode})");
+
+            if (playMode == CardPlayMode.Immediate)
+            {
+                PlayCardImmediate(card);
+            }
+            else if (playMode == CardPlayMode.MultiSelect)
+            {
+                // Step 3 (T38) でトグル浮上処理を実装
+                Debug.Log($"[VRC-BoardGameKit] [TableManager] MultiSelect モードでカードがクリックされました: {card.gameObject.name}");
+            }
+        }
+
+        /// <summary>
+        /// 即時モード (Immediate Mode): 1クリックで即座に中央プレイエリアへ整列移動
+        /// </summary>
+        /// <param name="card">プレイするカード</param>
+        public void PlayCardImmediate(CardController card)
+        {
+            if (card == null) return;
+            if (centerPlayZone == null)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] centerPlayZone が未設定のためプレイできません。");
+                return;
+            }
+
+            // すでに中央プレイエリアにある場合は二重プレイを防止
+            if (card.currentZone == centerPlayZone)
+            {
+                return;
+            }
+
+            // 操作プレイヤーにカードの所有権を移行
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            if (localPlayer != null && !Networking.IsOwner(card.gameObject))
+            {
+                Networking.SetOwner(localPlayer, card.gameObject);
+            }
+
+            // 元のスロット（手元スロットなど）からカードを解放（手元スロットが空き状態に復帰）
+            if (card.currentZone != null)
+            {
+                card.currentZone.ReleaseCard(card);
+                card.currentZone = null;
+            }
+
+            // 中央プレイエリアへ配置要請（Tell: allowStack=true により自動スタック整列）
+            bool accepted = centerPlayZone.TrySnap(card);
+            if (accepted)
+            {
+                card.currentZone = centerPlayZone;
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [TableManager] カードを中央プレイエリアへ即座に出しました: {card.gameObject.name} (StackCount: {centerPlayZone.GetStackedCount()})</color>");
+            }
+            else
+            {
+                Debug.LogWarning($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアへのスナップが拒否されました: {card.gameObject.name}");
+            }
         }
 
         private bool TakeOwnership()

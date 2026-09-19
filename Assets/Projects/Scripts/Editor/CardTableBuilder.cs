@@ -295,32 +295,28 @@ namespace BoardGameKit.Editor
             rb.useGravity = false;
             rb.isKinematic = true;
 
-            // 6. VRCPickup の追加 (手持ち設定・慣性投げ飛ばしゼロ・AutoHoldオフ)
+            // 6. VRCPickup の追加 (手持ち無効化・クリック選択方式への移行)
             VRCPickup pickup = cardObj.AddComponent<VRCPickup>();
+            pickup.pickupable = false;
             SerializedObject soVrcPickup = new SerializedObject(pickup);
+            soVrcPickup.FindProperty("pickupable").boolValue = false;
             soVrcPickup.FindProperty("AutoHold").intValue = 0; // 0 = No (AutoHold オフ)
             soVrcPickup.FindProperty("orientation").intValue = 2; // 2 = Grip
             soVrcPickup.FindProperty("ThrowVelocityBoostScale").floatValue = 0f;
             soVrcPickup.FindProperty("ThrowVelocityBoostMinSpeed").floatValue = 0f;
-            soVrcPickup.FindProperty("InteractionText").stringValue = "カードを持つ (Pick up)";
+            soVrcPickup.FindProperty("InteractionText").stringValue = "カードを選ぶ (Select)";
             soVrcPickup.FindProperty("UseText").stringValue = "カードを出す (Play)";
             soVrcPickup.ApplyModifiedProperties();
 
-            // 7. CardController のアタッチ (Tell Don't Ask準拠: 暴れ防止・空中静止・磁石スナップ制御)
+            // 7. CardController のアタッチ (Tell Don't Ask準拠: 暴れ防止・空中静止・磁石スナップ制御・クリック選択)
             CardController cardController = cardObj.AddUdonSharpComponent<CardController>();
             SerializedObject soCard = new SerializedObject(cardController);
             soCard.FindProperty("keepKinematicWhileHeld").boolValue = true;
+            soCard.FindProperty("selectionElevation").floatValue = 0.15f;
             soCard.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(cardController);
 
-            // 8. CardSlotController (UdonSharp) のアタッチ (B仕様クリック用互換)
-            CardSlotController slotCtrl = cardObj.AddUdonSharpComponent<CardSlotController>();
-            SerializedObject soSlot = new SerializedObject(slotCtrl);
-            soSlot.FindProperty("slotIndex").intValue = 0;
-            soSlot.ApplyModifiedProperties();
-            UdonSharpEditorUtility.CopyProxyToUdon(slotCtrl);
-
-            // 9. VRCObjectSync (位置・回転のネットワーク同期)
+            // 8. VRCObjectSync (位置・回転のネットワーク同期)
             cardObj.AddComponent<VRCObjectSync>();
 
             // 10. Prefabとして保存
@@ -368,9 +364,28 @@ namespace BoardGameKit.Editor
             tableMgrObj.transform.SetParent(root.transform, false);
             TableManager tableManager = tableMgrObj.AddUdonSharpComponent<TableManager>();
 
-            // 2. 中央の場のプレイエリア (Center Play Area) の生成 (70cm x 98cm 大判CardSnapZone)
+            // 2. 中央の場のプレイエリア (Center Play Area) の生成 (70cm x 98cm 大判CardSnapZone, スタック許可)
             GameObject centerPlaySlot = CreateArcadeSnapSlot("Center_PlaySlot", new Vector3(0, config.slotHeightY, 0), Quaternion.Euler(30f, 0, 0));
             centerPlaySlot.transform.SetParent(root.transform, false);
+
+            CardSnapZone centerSnapZone = centerPlaySlot.GetComponent<CardSnapZone>();
+            if (centerSnapZone != null)
+            {
+                centerSnapZone.allowStack = true;
+                centerSnapZone.stackElevationOffset = 0.002f;
+                SerializedObject soZone = new SerializedObject(centerSnapZone);
+                soZone.FindProperty("allowStack").boolValue = true;
+                soZone.FindProperty("stackElevationOffset").floatValue = 0.002f;
+                soZone.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(centerSnapZone);
+            }
+
+            // TableManager へのバインド同期
+            tableManager.centerPlayZone = centerSnapZone;
+            SerializedObject soTable = new SerializedObject(tableManager);
+            soTable.FindProperty("centerPlayZone").objectReferenceValue = centerSnapZone;
+            soTable.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
 
             // 3. 4つのプレイヤーエリア（登録キューブ ＆ 円弧状手札スロット）
             Vector3[] seatPositions = {
@@ -475,7 +490,7 @@ namespace BoardGameKit.Editor
             }
 
             // TableManager に 4席を登録
-            SerializedObject soTable = new SerializedObject(tableManager);
+            soTable.Update();
             SerializedProperty seatsProp = soTable.FindProperty("seatControllers");
             seatsProp.arraySize = 4;
             for (int i = 0; i < 4; i++)
@@ -655,11 +670,12 @@ namespace BoardGameKit.Editor
             poolContainer.transform.SetParent(deckRoot.transform, false);
             poolContainer.transform.localPosition = Vector3.zero;
 
+            // 常に最新のPrefab設定を保証（pickupable=false, CardSlotController除去済み）
             string cardPrefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
-            GameObject cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(cardPrefabPath);
+            GameObject cardPrefab = BuildYoungGirlCardPrefab();
             if (cardPrefab == null)
             {
-                cardPrefab = BuildYoungGirlCardPrefab();
+                cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(cardPrefabPath);
             }
 
             CardController[] poolCards = new CardController[poolCount];
@@ -669,12 +685,24 @@ namespace BoardGameKit.Editor
                 cardInstance.name = $"PoolCard_{c:D2}";
                 cardInstance.transform.SetParent(poolContainer.transform, false);
 
+                // VRCPickup の手持ち無効化をインスタンスレベルでも徹底保証
+                VRCPickup pickup = cardInstance.GetComponent<VRCPickup>();
+                if (pickup != null)
+                {
+                    pickup.pickupable = false;
+                    SerializedObject soPickup = new SerializedObject(pickup);
+                    soPickup.FindProperty("pickupable").boolValue = false;
+                    soPickup.ApplyModifiedProperties();
+                }
+
                 CardController cardCtrl = cardInstance.GetComponent<CardController>();
                 if (cardCtrl != null)
                 {
                     cardCtrl.cardId = c;
+                    cardCtrl.tableManager = tableManager;
                     // 初期状態: 山札位置に重なって非表示待機
                     cardCtrl.ResetToDeck(localPos, localRot);
+                    UdonSharpEditorUtility.CopyProxyToUdon(cardCtrl);
                     poolCards[c] = cardCtrl;
                 }
             }
@@ -834,11 +862,23 @@ namespace BoardGameKit.Editor
                 cardInstance.transform.SetParent(container, false);
                 Undo.RegisterCreatedObjectUndo(cardInstance, "Create Pool Card");
 
+                VRCPickup pickup = cardInstance.GetComponent<VRCPickup>();
+                if (pickup != null)
+                {
+                    pickup.pickupable = false;
+                    SerializedObject soPickup = new SerializedObject(pickup);
+                    soPickup.FindProperty("pickupable").boolValue = false;
+                    soPickup.ApplyModifiedProperties();
+                }
+
                 CardController cardCtrl = cardInstance.GetComponent<CardController>();
                 if (cardCtrl != null)
                 {
                     cardCtrl.cardId = newId;
+                    TableManager tm = Object.FindObjectOfType<TableManager>();
+                    if (tm != null) cardCtrl.tableManager = tm;
                     cardCtrl.ResetToDeck(deckManager.transform.localPosition, deckManager.transform.localRotation);
+                    UdonSharpEditorUtility.CopyProxyToUdon(cardCtrl);
                     currentList.Add(cardCtrl);
                 }
             }

@@ -21,8 +21,20 @@ namespace BoardGameKit.Core
         [Tooltip("このスロットに現在カードが収まっているかどうか")]
         [SerializeField] private bool isOccupied = false;
 
-        [Tooltip("現在このスロットに収まっているカード")]
+        [Tooltip("現在このスロットに収まっているカード（スタック時は最新の最前面カード）")]
         [SerializeField] private CardController currentCard = null;
+
+        [Header("Stack Settings")]
+        [Tooltip("複数枚のカードを重ねて配置（スタック）することを許可するか（中央プレイエリア等）")]
+        public bool allowStack = false;
+
+        [Tooltip("スタック時の1枚あたりの手前浮上オフセット量 (m) ※Zファイティング防止")]
+        public float stackElevationOffset = 0.002f;
+
+        // スタックされたカード配列（U#最適化: 最大64枚の固定長）
+        private const int MAX_STACK_SIZE = 64;
+        private CardController[] stackedCards = new CardController[MAX_STACK_SIZE];
+        private int stackedCount = 0;
 
         [Header("Visual Feedback")]
         [Tooltip("カードが近づいたときにハイライト表示する枠（MeshRenderer）")]
@@ -57,7 +69,7 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
-        /// 現在このスロットに収まっているカードを返す
+        /// 現在このスロットに収まっているカードを返す（スタック時は最前面）
         /// </summary>
         public CardController GetCurrentCard()
         {
@@ -65,15 +77,31 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
+        /// 現在スタックされているカードの総枚数を返す
+        /// </summary>
+        public int GetStackedCount()
+        {
+            return stackedCount;
+        }
+
+        /// <summary>
+        /// スタックされているカード配列を返す
+        /// </summary>
+        public CardController[] GetStackedCards()
+        {
+            return stackedCards;
+        }
+
+        /// <summary>
         /// カードからの配置要請を受け入れ、判定する命令（Tell）。
-        /// 空いていればカード自身に目標姿勢への移動を命じる。
+        /// 空いているかスタック許可であれば、カード自身に目標姿勢への移動を命じる。
         /// </summary>
         /// <param name="card">配置を希望するカード</param>
         /// <returns>受入成功ならtrue、満杯等で失敗ならfalse</returns>
         public bool TrySnap(CardController card)
         {
             if (card == null) return false;
-            if (isOccupied) return false;
+            if (isOccupied && !allowStack) return false;
 
             // スロット状態の更新
             isOccupied = true;
@@ -86,10 +114,24 @@ namespace BoardGameKit.Core
                 guideRenderer.enabled = false;
             }
 
-            // 【Tell】カード自身に目標位置・回転への移動・整列を命じる
-            card.SnapTo(transform.position, transform.rotation);
+            Vector3 targetPos = transform.position;
+            Quaternion targetRot = transform.rotation;
 
-            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードを受入・スナップ命令を発行しました: {slotName} (Card: {card.gameObject.name})");
+            if (allowStack)
+            {
+                // Quadの表面法線方向（手前: -transform.forward）へ 2mm ずつオフセット
+                targetPos = transform.position - (transform.forward * (stackedCount * stackElevationOffset));
+                if (stackedCount < MAX_STACK_SIZE)
+                {
+                    stackedCards[stackedCount] = card;
+                    stackedCount++;
+                }
+            }
+
+            // 【Tell】カード自身に目標位置・回転への移動・整列を命じる
+            card.SnapTo(targetPos, targetRot);
+
+            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードを受入・スナップ命令を発行しました: {slotName} (Card: {card.gameObject.name}, StackCount: {stackedCount})");
             return true;
         }
 
@@ -100,19 +142,80 @@ namespace BoardGameKit.Core
         public void ReleaseCard(CardController card)
         {
             if (card == null) return;
-            if (currentCard != card) return;
 
+            if (allowStack)
+            {
+                // スタック配列から該当カードを探索・削除
+                int foundIndex = -1;
+                for (int i = 0; i < stackedCount; i++)
+                {
+                    if (stackedCards[i] == card)
+                    {
+                        foundIndex = i;
+                        break;
+                    }
+                }
+
+                if (foundIndex != -1)
+                {
+                    for (int i = foundIndex; i < stackedCount - 1; i++)
+                    {
+                        stackedCards[i] = stackedCards[i + 1];
+                    }
+                    stackedCards[stackedCount - 1] = null;
+                    stackedCount--;
+                }
+
+                if (stackedCount > 0)
+                {
+                    currentCard = stackedCards[stackedCount - 1];
+                }
+                else
+                {
+                    isOccupied = false;
+                    currentCard = null;
+                    if (guideRenderer != null)
+                    {
+                        guideRenderer.enabled = true;
+                    }
+                }
+            }
+            else
+            {
+                if (currentCard != card) return;
+
+                isOccupied = false;
+                currentCard = null;
+
+                // ガイド枠を再表示
+                if (guideRenderer != null)
+                {
+                    guideRenderer.enabled = true;
+                }
+            }
+
+            SetGuideHighlighted(false);
+            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードがスロットから解放されました: {slotName} (RemainingStack: {stackedCount})");
+        }
+
+        /// <summary>
+        /// スタックされている全カードをクリアする（リセット・場流れ用）
+        /// </summary>
+        public void ClearStack()
+        {
+            for (int i = 0; i < stackedCount; i++)
+            {
+                stackedCards[i] = null;
+            }
+            stackedCount = 0;
             isOccupied = false;
             currentCard = null;
 
-            // ガイド枠を再表示
             if (guideRenderer != null)
             {
                 guideRenderer.enabled = true;
             }
-
             SetGuideHighlighted(false);
-            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードがスロットから解放されました（ガイド再表示）: {slotName}");
         }
 
         /// <summary>

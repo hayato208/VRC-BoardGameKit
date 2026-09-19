@@ -17,6 +17,17 @@ namespace BoardGameKit.Core
         [Tooltip("カードの一意識別ID (0〜N-1)")]
         public int cardId = 0;
 
+        [Header("System References")]
+        [Tooltip("テーブル統括マネージャーへの参照")]
+        public TableManager tableManager;
+
+        [Header("Selection Visual")]
+        [Tooltip("現在選択中（浮上中）かどうか")]
+        public bool isSelected = false;
+
+        [Tooltip("選択時の浮上オフセット量 (m)")]
+        public float selectionElevation = 0.15f;
+
         [Header("Physics Settings")]
         [Tooltip("手で持っている間も isKinematic = true を維持するか（暴れ・ガタつき完全防止）")]
         public bool keepKinematicWhileHeld = true;
@@ -34,6 +45,11 @@ namespace BoardGameKit.Core
 
         private Rigidbody rb;
         private bool isHeld = false;
+
+        // 非選択時のベース座標・回転（浮上から元に戻るためのSSOT）
+        private Vector3 normalPosition;
+        private Quaternion normalRotation;
+        private bool hasNormalTransform = false;
 
         // 接触中の候補スロット配列（U#最適化: 最大8要素の固定長）
         private const int MAX_CANDIDATES = 8;
@@ -70,6 +86,11 @@ namespace BoardGameKit.Core
         /// <param name="targetRotation">目標ワールド回転</param>
         public void SnapTo(Vector3 targetPosition, Quaternion targetRotation)
         {
+            normalPosition = targetPosition;
+            normalRotation = targetRotation;
+            hasNormalTransform = true;
+            isSelected = false;
+
             transform.position = targetPosition;
             transform.rotation = targetRotation;
 
@@ -82,6 +103,43 @@ namespace BoardGameKit.Core
 
             gameObject.SetActive(true);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カード自身が指定位置へ吸着整列しました: {gameObject.name}");
+        }
+
+        /// <summary>
+        /// 選択状態に応じた視覚フィードバック（浮上演出）を切り替える。
+        /// Tell, Don't Ask原則に基づき、カード自身が自身の姿勢を制御する。
+        /// </summary>
+        /// <param name="selected">trueで15cm浮上、falseで通常位置復帰</param>
+        public void SetSelectedVisual(bool selected)
+        {
+            isSelected = selected;
+            if (!hasNormalTransform)
+            {
+                normalPosition = transform.position;
+                normalRotation = transform.rotation;
+                hasNormalTransform = true;
+            }
+
+            if (isSelected)
+            {
+                // スロットの板に沿った上方向（transform.up）に15cm浮上
+                transform.position = normalPosition + (transform.up * selectionElevation);
+                transform.rotation = normalRotation;
+            }
+            else
+            {
+                transform.position = normalPosition;
+                transform.rotation = normalRotation;
+            }
+
+            if (rb != null)
+            {
+                rb.velocity = Vector3.zero;
+                rb.angularVelocity = Vector3.zero;
+                rb.isKinematic = true;
+            }
+
+            Debug.Log($"[VRC-BoardGameKit] [CardController] 選択視覚状態を更新しました: {gameObject.name} (Selected: {isSelected})");
         }
 
         /// <summary>
@@ -106,6 +164,9 @@ namespace BoardGameKit.Core
         /// </summary>
         public void ResetToDeck(Vector3 deckPos, Quaternion deckRot)
         {
+            isSelected = false;
+            hasNormalTransform = false;
+
             if (currentZone != null)
             {
                 currentZone.ReleaseCard(this);
@@ -126,6 +187,26 @@ namespace BoardGameKit.Core
 
             gameObject.SetActive(false);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カードを山札へ回収・初期化しました: {gameObject.name} (ID: {cardId})");
+        }
+
+        #endregion
+
+        #region VRChat Interaction イベントハンドラ
+
+        /// <summary>
+        /// 視線を合わせてクリック（ネイティブInteract）されたときの処理。
+        /// TableManager へクリック通知を発行する。
+        /// </summary>
+        public override void Interact()
+        {
+            if (tableManager != null)
+            {
+                tableManager.OnCardClicked(this);
+            }
+            else
+            {
+                Debug.LogWarning($"[VRC-BoardGameKit] [CardController] TableManager 参照が未設定です: {gameObject.name}");
+            }
         }
 
         #endregion
