@@ -53,6 +53,12 @@
         ```text
         Co-authored-by: Antigravity <antigravity-bot@users.noreply.github.com>
         ```
+*   **GitHubデフォルトブランチ運用とリリース手順**:
+    *   **開発フェーズ（現在）**: 日常の開発成果をリアルタイムに反映・可視化（Contributions/草の反映）するため、GitHubのデフォルトブランチを `develop` に設定して運用する。
+    *   **正式リリース時（Ver 1.0等）**:
+        1. `develop` から `main` へのプルリクエストを作成し、差分をマージする。
+        2. GitHubリポジトリ設定のデフォルトブランチを `main` へ復帰・切り替える。
+        3. バージョンタグ（例: `v1.0.0`）を付与してリリースを作成する。
 
 ---
 
