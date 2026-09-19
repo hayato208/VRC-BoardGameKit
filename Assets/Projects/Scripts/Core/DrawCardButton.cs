@@ -7,8 +7,8 @@ namespace BoardGameKit.Core
 {
     /// <summary>
     /// プレイヤーの手元（PersonalHandArea）に配置されるドロー専用UIボタン。
-    /// WorldSpace Canvas + VRCUiShape + BoxCollider + UdonSharpBehaviour (Interact) のハイブリッド構成により、
-    /// VRコントローラーおよびデスクトップの双方で100%確実に山札から空き手札スロットへカードを引く。
+    /// WorldSpace Canvas + VRCUiShape + BoxCollider + UdonSharpBehaviour (Interact / OnButtonClick) のハイブリッド構成により、
+    /// VRコントローラーのレーザーポインター、デスクトップUIマウスクリック、3D直接Interactの全環境で100%確実に動作する。
     /// </summary>
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class DrawCardButton : UdonSharpBehaviour
@@ -22,13 +22,48 @@ namespace BoardGameKit.Core
         private void Start()
         {
             this.InteractionText = "カードを引く (Draw)";
+
+            // 参照がインスペクタから外れていた場合の防護フォールバック
+            if (linkedHandArea == null)
+            {
+                linkedHandArea = GetComponentInParent<PersonalHandArea>();
+            }
+            if (deckManager == null)
+            {
+                deckManager = Object.FindObjectOfType<DeckManager>();
+            }
         }
 
+        /// <summary>
+        /// 3D直接インタラクト（Eキー / VRタッチ）
+        /// </summary>
         public override void Interact()
         {
+            ExecuteDraw();
+        }
+
+        /// <summary>
+        /// Unity UI (Button.onClick) / VRCUiShape レーザークリック用エントリーポイント
+        /// </summary>
+        public void OnButtonClick()
+        {
+            ExecuteDraw();
+        }
+
+        private void ExecuteDraw()
+        {
+            if (deckManager == null)
+            {
+                deckManager = Object.FindObjectOfType<DeckManager>();
+            }
+            if (linkedHandArea == null)
+            {
+                linkedHandArea = GetComponentInParent<PersonalHandArea>();
+            }
+
             if (deckManager == null || linkedHandArea == null)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] deckManager または linkedHandArea が設定されていません。");
+                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] deckManager または linkedHandArea が取得できません。");
                 return;
             }
 
@@ -39,7 +74,7 @@ namespace BoardGameKit.Core
             {
                 // 2. 山札から空きスロットへカードを引く
                 deckManager.DrawCardForZone(emptySlot);
-                Debug.Log($"[VRC-BoardGameKit] [DrawCardButton] 手元UIボタンからドローを実行 (Slot: {emptySlot.gameObject.name})");
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [DrawCardButton] 手元ボタンからドローを実行しました (対象スロット: {emptySlot.gameObject.name})</color>");
             }
             else
             {

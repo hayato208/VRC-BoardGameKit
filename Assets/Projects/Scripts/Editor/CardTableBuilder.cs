@@ -1283,6 +1283,7 @@ namespace BoardGameKit.Editor
             canvasObj.transform.localPosition = localPos;
             canvasObj.transform.localRotation = localRot;
             canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+            canvasObj.layer = 0; // Default layer
 
             Canvas canvas = canvasObj.AddComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
@@ -1296,12 +1297,14 @@ namespace BoardGameKit.Editor
             GameObject btnObj = new GameObject("Draw_Button");
             btnObj.transform.SetParent(canvasObj.transform, false);
             btnObj.transform.localPosition = Vector3.zero;
+            btnObj.layer = 0; // Default layer
 
             Image img = btnObj.AddComponent<Image>();
             img.color = new Color(0.10f, 0.50f, 0.28f, 0.95f); // 視認性の高いエメラルドグリーン
             img.raycastTarget = true;
 
             Button btn = btnObj.AddComponent<Button>();
+            btn.navigation = new Navigation { mode = Navigation.Mode.None };
             RectTransform btnRt = btnObj.GetComponent<RectTransform>();
             btnRt.sizeDelta = new Vector2(28f, 14f);
 
@@ -1316,6 +1319,9 @@ namespace BoardGameKit.Editor
                 udonUIBacking.interactText = "カードを引く (Draw)";
             }
 
+            // Button.onClick と UdonSharp (OnButtonClick) の二重バインド (最重要)
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(btn.onClick, drawUdon.OnButtonClick);
+
             SerializedObject soBtn = new SerializedObject(drawUdon);
             soBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
             if (deckMgr != null)
@@ -1329,17 +1335,29 @@ namespace BoardGameKit.Editor
             GameObject textObj = new GameObject("Text (TMP)");
             textObj.transform.SetParent(btnObj.transform, false);
             textObj.transform.localPosition = Vector3.zero;
+            textObj.transform.localScale = Vector3.one;
+            textObj.layer = 0;
+
             TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
             TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
-            if (jpFont != null) { tmp.font = jpFont; tmp.fontSharedMaterial = jpFont.material; }
-            tmp.text = "カードを引く\n<size=70%>Draw Card</size>";
+            if (jpFont != null)
+            {
+                tmp.font = jpFont;
+                tmp.fontSharedMaterial = jpFont.material;
+            }
+
+            tmp.text = "カードを引く\n<size=70%>DRAW CARD</size>";
             tmp.alignment = TextAlignmentOptions.Center;
             tmp.color = Color.white;
-            tmp.fontSize = 3.8f;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 2.0f;
+            tmp.fontSizeMax = 4.2f;
             tmp.raycastTarget = false;
+
             RectTransform textRt = textObj.GetComponent<RectTransform>();
             textRt.sizeDelta = new Vector2(28f, 14f);
 
+            EditorUtility.SetDirty(canvasObj);
             return canvasObj;
         }
 

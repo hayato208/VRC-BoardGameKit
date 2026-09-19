@@ -780,6 +780,28 @@ Unity組み込みの3D形状（プリミティブ）は、一見どれも「板�
 * ボタン押下時、`linkedHandArea.GetFirstEmptySlot()` で最も若い空きスロット（スロット0、1、2…）を動的に検索。
 * `DeckManager.DrawCardForZone(emptySlot)` を呼び出すことで、山札からカードが手元の空き枠へ瞬時に配備されるシームレスな操作体験を実現。
 
+---
+
+## 42. WorldSpace UI におけるクリック不発と文字化けの根本原因・再発防止策
+
+### ① ボタンクリック不発のメカニズム（OnButtonClick & AddPersistentListener 欠落）
+* **現象**:
+  * Canvas、Image、BoxCollider、VRCUiShape、UdonSharpBehaviour が存在していても、ボタンをクリックしても一切反応しなかった。
+* **根本原因**:
+  1. VRChatのVRレーザーポインターおよびデスクトップUIモードでは、入力が `EventSystem` ➜ `GraphicRaycaster` ➜ `UnityEngine.UI.Button.onClick` 経由で伝達される。
+  2. 生成スクリプトにおいて `UnityEditor.Events.UnityEventTools.AddPersistentListener(btn.onClick, drawUdon.OnButtonClick)` が登録されておらず、さらに `DrawCardButton.cs` に `OnButtonClick()` メソッドが存在しなかったため、UIクリックイベントがUdon VMに到達せず完全に消失していた。
+  3. `Button.navigation` が未設定だったため、キーボードやスティックの移動入力でフォーカスが奪われ、クリック不能に陥っていた。
+* **再発防止策**:
+  * すべてのUIボタン生成において、`btn.navigation = Navigation.Mode.None` の設定と `AddPersistentListener` による `OnButtonClick` 登録を必須要件としてコードベースを標準化。
+  * U#コンポーネント側でも `Interact()` と `OnButtonClick()` の両方を実装し、3D直接操作とUIクリックの二重受入体制を確立。
+
+### ② TextMeshPro 文字化け・スケール崩れ対策
+* **原因**:
+  * `TextMeshProUGUI` 生成時に `textObj.transform.localScale = Vector3.one` が明示されず親のスケール継承で歪みが生じたこと、および `enableAutoSizing` がなくフォントサイズとRectTransformの境界不整合が発生していた。
+* **解決策**:
+  * `CreateButton` の実績パターンに統一し、`enableAutoSizing = true`、`fontSizeMin = 2.0f`、`fontSizeMax = 4.2f`、`EditorUtility.SetDirty` を適用してフォントマテリアルとメッシュを確実にシリアライズ。
+
+
 
 
 
