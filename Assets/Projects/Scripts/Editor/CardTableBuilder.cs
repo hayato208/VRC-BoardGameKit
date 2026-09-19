@@ -15,6 +15,68 @@ using System.IO;
 namespace BoardGameKit.Editor
 {
     /// <summary>
+    /// 大判カード・扇型スロット空間の幾何パラメータを一元管理する設定データ（SSOT）。
+    /// マジックナンバーを完全排除し、スロット数に応じた最適配置の自動計算機能を提供する。
+    /// </summary>
+    [System.Serializable]
+    public class ArcadeFieldConfig
+    {
+        // --- 共通寸法定数 (SSOT: Single Source of Truth) ---
+        public static readonly Vector2 CardDimension = new Vector2(0.70f, 0.98f);
+        public static readonly Vector2 GuideFrameDimension = new Vector2(0.72f, 1.00f);
+        public static readonly Vector3 TriggerColliderSize = new Vector3(0.72f, 1.05f, 0.30f);
+
+        // --- 幾何パラメータ ---
+        public int slotCount = 5;            // スロット数
+        public float radius = 1.40f;         // プレイヤー中心からの半径 (m)
+        public float angleStep = 36.0f;      // 各スロットの展開角度ステップ (度)
+        public float tiltAngle = 12.0f;      // 手前見下ろしチルト角 (度)
+        public float slotHeightY = 0.85f;    // スロットの基準高さ Y (m)
+        public float minBottomGap = 0.08f;   // 最も近づく下端の最小保証隙間 (m)
+
+        /// <summary>
+        /// 指定されたスロット数に応じた最適な幾何パラメータ（半径・角度・チルト）を数学的に自動算出する
+        /// </summary>
+        public static ArcadeFieldConfig CreateOptimized(int count)
+        {
+            var config = new ArcadeFieldConfig();
+            config.slotCount = Mathf.Clamp(count, 1, 10);
+            config.tiltAngle = 12.0f;
+            config.slotHeightY = 0.85f;
+            config.minBottomGap = 0.08f;
+
+            // 必要な弦長 = ガイド枠幅 + 最小隙間 (0.72m + 0.08m = 0.80m)
+            float requiredChord = GuideFrameDimension.x + config.minBottomGap;
+
+            // 枚数に応じた半径の最適化（視野角145度以内に収めるためのエルゴノミクス設計）
+            if (config.slotCount <= 3)
+            {
+                config.radius = 1.30f;
+            }
+            else if (config.slotCount <= 5)
+            {
+                config.radius = 1.40f;
+            }
+            else if (config.slotCount <= 7)
+            {
+                config.radius = 1.65f; // 枚数が多い場合は半径を広げて視野角内に収める
+            }
+            else
+            {
+                config.radius = 1.90f;
+            }
+
+            // チルトによる下端半径の縮小分を考慮した厳密な角度ステップ計算
+            float bottomRadius = config.radius - (GuideFrameDimension.y / 2f) * Mathf.Sin(config.tiltAngle * Mathf.Deg2Rad);
+            float sinHalfAngle = requiredChord / (2f * bottomRadius);
+            sinHalfAngle = Mathf.Clamp(sinHalfAngle, 0.01f, 0.99f);
+            config.angleStep = Mathf.Asin(sinHalfAngle) * 2f * Mathf.Rad2Deg;
+
+            return config;
+        }
+    }
+
+    /// <summary>
     /// シーン上に4人対戦用のカードゲームテーブル環境を一括自動生成するエディタ拡張。
     /// ・UdonSharpEditorUtility による100%完全なUdonSharpBehaviourシリアライズ
     /// ・TextMeshPro (TMP) による文字潰れのない高精細UI & ステータスHUD
@@ -937,17 +999,17 @@ namespace BoardGameKit.Editor
             slotObj.transform.localPosition = localPos;
             slotObj.transform.localRotation = Quaternion.Euler(0, 180f, 0);
 
-            // 吸着検知用トリガーコライダー (幅80cm x 高さ110cm x 奥行30cm)
+            // 吸着検知用トリガーコライダー (SSOT参照)
             BoxCollider triggerCol = slotObj.AddComponent<BoxCollider>();
             triggerCol.isTrigger = true;
-            triggerCol.size = new Vector3(0.80f, 1.10f, 0.30f);
+            triggerCol.size = ArcadeFieldConfig.TriggerColliderSize;
 
-            // 視覚ガイド用の薄い枠板 (Quad)
+            // 視覚ガイド用の薄い枠板 (SSOT参照)
             GameObject guideQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             guideQuad.name = "GuideFrame";
             guideQuad.transform.SetParent(slotObj.transform, false);
             guideQuad.transform.localPosition = Vector3.zero;
-            guideQuad.transform.localScale = new Vector3(0.72f, 1.0f, 1.0f);
+            guideQuad.transform.localScale = new Vector3(ArcadeFieldConfig.GuideFrameDimension.x, ArcadeFieldConfig.GuideFrameDimension.y, 1.0f);
             Object.DestroyImmediate(guideQuad.GetComponent<MeshCollider>());
 
             // 半透明のガイド枠マテリアル
@@ -966,9 +1028,42 @@ namespace BoardGameKit.Editor
             return slotObj;
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Build Dynamic Arcade Field in Scene (動的円弧スロット空間生成)")]
-        public static void BuildDynamicArcadeField()
+        [MenuItem("Tools/VRC-BoardGameKit/Build Dynamic Arcade Field in Scene (動的円弧スロット空間生成)", false, 9)]
+        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札5枠: 標準)", false, 10)]
+        public static void BuildDynamicArcadeFieldDefault()
         {
+            BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(5));
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札3枠: コンパクト)", false, 11)]
+        public static void BuildDynamicArcadeField3()
+        {
+            BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(3));
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札4枠: 左右対称)", false, 12)]
+        public static void BuildDynamicArcadeField4()
+        {
+            BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(4));
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/円弧スロット空間構築 (手札7枠: ワイド)", false, 13)]
+        public static void BuildDynamicArcadeField7()
+        {
+            BuildDynamicArcadeField(ArcadeFieldConfig.CreateOptimized(7));
+        }
+
+        /// <summary>
+        /// 指定された設定データ（ArcadeFieldConfig）に基づき、シーン上に動的円弧スロット空間を一括自動生成する。
+        /// </summary>
+        /// <param name="config">幾何設定データ（null時は5枠最適設定）</param>
+        public static void BuildDynamicArcadeField(ArcadeFieldConfig config = null)
+        {
+            if (config == null)
+            {
+                config = ArcadeFieldConfig.CreateOptimized(5);
+            }
+
             EnsureAllProgramAssets();
 
             // 既存のオブジェクトを安全に削除
@@ -993,7 +1088,7 @@ namespace BoardGameKit.Editor
             TableManager tableManager = tableMgrObj.AddUdonSharpComponent<TableManager>();
 
             // 2. 中央の場のプレイエリア (Center Play Area) の生成 (70cm x 98cm 大判CardSnapZone)
-            GameObject centerPlaySlot = CreateArcadeSnapSlot("Center_PlaySlot", new Vector3(0, 0.85f, 0), Quaternion.Euler(30f, 0, 0));
+            GameObject centerPlaySlot = CreateArcadeSnapSlot("Center_PlaySlot", new Vector3(0, config.slotHeightY, 0), Quaternion.Euler(30f, 0, 0));
             centerPlaySlot.transform.SetParent(root.transform, false);
 
             // 3. 4つのプレイヤーエリア（登録キューブ ＆ 円弧状手札スロット）
@@ -1044,19 +1139,16 @@ namespace BoardGameKit.Editor
                 slotContainer.transform.localPosition = Vector3.zero;
                 slotContainer.transform.localRotation = Quaternion.identity;
 
-                int slotCount = 5;
-                float arcRadius = 1.40f;
-                float arcAngleStep = 36.0f; // チルト角を考慮し最も近づく下端でも8cm以上の隙間を確保
-                float arcTiltAngle = 12.0f; // 視線正対と下端間隔を両立する12度チルト
+                int slotCount = config.slotCount;
                 CardSnapZone[] snapZones = new CardSnapZone[slotCount];
 
                 for (int s = 0; s < slotCount; s++)
                 {
-                    // 幾何計算: 半径1.40m、角度ステップ36.0度 (-72, -36, 0, +36, +72)
-                    float angleDeg = (s - (slotCount - 1) / 2f) * arcAngleStep;
+                    // 幾何計算: プレイヤー中心を原点とした円弧配置 (左右対称)
+                    float angleDeg = (s - (slotCount - 1) / 2f) * config.angleStep;
                     float rad = angleDeg * Mathf.Deg2Rad;
-                    Vector3 slotPos = new Vector3(Mathf.Sin(rad) * arcRadius, 0.85f, Mathf.Cos(rad) * arcRadius);
-                    Quaternion slotRot = Quaternion.Euler(arcTiltAngle, angleDeg, 0f); // プレイヤー中心を向くYaw + 手前チルト12度
+                    Vector3 slotPos = new Vector3(Mathf.Sin(rad) * config.radius, config.slotHeightY, Mathf.Cos(rad) * config.radius);
+                    Quaternion slotRot = Quaternion.Euler(config.tiltAngle, angleDeg, 0f); // プレイヤー中心を向くYaw + 手前チルト
 
                     GameObject slotObj = CreateArcadeSnapSlot($"Seat{i}_Slot_{s}", slotPos, slotRot);
                     slotObj.transform.SetParent(slotContainer.transform, false);
@@ -1067,10 +1159,10 @@ namespace BoardGameKit.Editor
 
                 SerializedObject soHandArea = new SerializedObject(handArea);
                 soHandArea.FindProperty("slotCount").intValue = slotCount;
-                soHandArea.FindProperty("radius").floatValue = arcRadius;
-                soHandArea.FindProperty("angleStep").floatValue = arcAngleStep;
-                soHandArea.FindProperty("slotTiltAngle").floatValue = arcTiltAngle;
-                soHandArea.FindProperty("slotHeightY").floatValue = 0.85f;
+                soHandArea.FindProperty("radius").floatValue = config.radius;
+                soHandArea.FindProperty("angleStep").floatValue = config.angleStep;
+                soHandArea.FindProperty("slotTiltAngle").floatValue = config.tiltAngle;
+                soHandArea.FindProperty("slotHeightY").floatValue = config.slotHeightY;
                 soHandArea.FindProperty("slotContainer").objectReferenceValue = slotContainer;
                 SerializedProperty snapZonesProp = soHandArea.FindProperty("snapZones");
                 snapZonesProp.arraySize = slotCount;
@@ -1114,7 +1206,7 @@ namespace BoardGameKit.Editor
             }
 
             Selection.activeGameObject = root;
-            Debug.Log("<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (DynamicCardField_4Players) の構築が完了しました！</color>");
+            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / 半径 {config.radius:F2}m / 角度 {config.angleStep:F1}度) の構築が完了しました！</color>");
         }
 
         private static GameObject CreateArcadeSnapSlot(string name, Vector3 localPos, Quaternion localRot)
@@ -1123,17 +1215,17 @@ namespace BoardGameKit.Editor
             slotObj.transform.localPosition = localPos;
             slotObj.transform.localRotation = localRot;
 
-            // 吸着検知用トリガーコライダー (幅72cm x 高さ105cm x 奥行30cm: ガイド枠幅に一致させ隣接スロットとの干渉をゼロ化)
+            // 吸着検知用トリガーコライダー (SSOT参照: ガイド枠幅に一致させ隣接スロットとの干渉をゼロ化)
             BoxCollider triggerCol = slotObj.AddComponent<BoxCollider>();
             triggerCol.isTrigger = true;
-            triggerCol.size = new Vector3(0.72f, 1.05f, 0.30f);
+            triggerCol.size = ArcadeFieldConfig.TriggerColliderSize;
 
-            // 視覚ガイド用の薄い枠板 (Quad: 幅72cm x 高さ100cm)
+            // 視覚ガイド用の薄い枠板 (SSOT参照)
             GameObject guideQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
             guideQuad.name = "GuideFrame";
             guideQuad.transform.SetParent(slotObj.transform, false);
             guideQuad.transform.localPosition = Vector3.zero;
-            guideQuad.transform.localScale = new Vector3(0.72f, 1.00f, 1.0f);
+            guideQuad.transform.localScale = new Vector3(ArcadeFieldConfig.GuideFrameDimension.x, ArcadeFieldConfig.GuideFrameDimension.y, 1.0f);
             Object.DestroyImmediate(guideQuad.GetComponent<MeshCollider>());
 
             // 半透明のガイド枠マテリアル
