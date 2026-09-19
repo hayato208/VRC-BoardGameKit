@@ -101,6 +101,11 @@ namespace BoardGameKit.Core
             if (currentCardCount >= maxHandCount) return -1;
             if (!TakeOwnership()) return -1;
 
+            if (handCardIds == null)
+            {
+                InitializeHandSlots();
+            }
+
             int targetSlot = -1;
             for (int i = 0; i < maxHandCount; i++)
             {

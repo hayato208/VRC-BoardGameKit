@@ -40,7 +40,12 @@ namespace BoardGameKit.Core
             // 着席していればカードを1枚引く
             if (mySeat != -1)
             {
+                Debug.Log($"[VRC-BoardGameKit] [3D Interact] 山札をクリックしてドローを実行 (Seat: {mySeat})");
                 tableManager.DrawCardForPlayer(mySeat);
+            }
+            else
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [3D Interact] 座席に着席していないためドローできません。椅子をクリックして着席してください。");
             }
         }
     }

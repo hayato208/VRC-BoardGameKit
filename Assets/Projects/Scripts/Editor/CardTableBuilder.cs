@@ -7,6 +7,8 @@ using VRC.SDK3.Components;
 using VRCStation = VRC.SDK3.Components.VRCStation;
 using VRCUiShape = VRC.SDK3.Components.VRCUiShape;
 using VRC.Udon;
+using UdonSharp;
+using UdonSharpEditor;
 using BoardGameKit.Core;
 using System.IO;
 
@@ -14,15 +16,53 @@ namespace BoardGameKit.Editor
 {
     /// <summary>
     /// シーン上に4人対戦用のカードゲームテーブル環境を一括自動生成するエディタ拡張。
-    /// ・TextMeshPro (TMP) による文字潰れのない高精細UI
+    /// ・UdonSharpEditorUtility による100%完全なUdonSharpBehaviourシリアライズ
+    /// ・TextMeshPro (TMP) による文字潰れのない高精細UI & ステータスHUD
     /// ・山札・手札への3D直接インタラクト (Udon Interact)
     /// ・VRChatのWorld Space UI仕様 (VRCUiShape + BoxCollider + SendCustomEvent)
+    /// ・VRCStation（PlayerMobility = Immobilize）の着席設定
     /// に完全準拠。
     /// </summary>
     public static class CardTableBuilder
     {
-        [MenuItem("Tools/VRC-BoardGameKit/Save Current Table to Prefabs")]
-        public static void SaveCurrentTableToPrefabs()
+        [MenuItem("Tools/VRC-BoardGameKit/Setup 4-Player Table in Scene (From Prefab)")]
+        public static void PlaceTableFromPrefab()
+        {
+            string prefabPath = "Assets/Projects/Prefabs/CardTable_4Players.prefab";
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+
+            // Prefabが存在しない場合は自動ビルドして保存
+            if (prefab == null)
+            {
+                Debug.Log("[VRC-BoardGameKit] CardTable_4Players.prefab が見つからないため、新規ビルドして保存します...");
+                BuildAndSaveTablePrefab();
+                prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            }
+
+            if (prefab == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] CardTable_4Players.prefab のロードに失敗しました。");
+                return;
+            }
+
+            // シーン上の既存テーブルを削除
+            GameObject existing = GameObject.Find("CardTable_4Players");
+            if (existing != null)
+            {
+                Undo.DestroyObjectImmediate(existing);
+            }
+
+            // Prefabからインスタンス化
+            GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            instance.transform.position = new Vector3(0, 0, 2.0f);
+            Undo.RegisterCreatedObjectUndo(instance, "Place Card Table Prefab");
+            Selection.activeGameObject = instance;
+
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> Prefabからシーンへカードテーブルを配置しました！</color>");
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Save Scene Table to Prefab & Dump Transforms")]
+        public static void SaveSceneTableToPrefab()
         {
             GameObject table = GameObject.Find("CardTable_4Players");
             if (table == null)
@@ -38,27 +78,210 @@ namespace BoardGameKit.Editor
                 AssetDatabase.Refresh();
             }
 
-            // TableUI_Canvas 単体プレハブ
-            Transform uiTransform = table.transform.Find("TableUI_Canvas");
-            if (uiTransform != null)
-            {
-                string uiPrefabPath = $"{prefabsDir}/TableUI_Canvas.prefab";
-                PrefabUtility.SaveAsPrefabAssetAndConnect(uiTransform.gameObject, uiPrefabPath, InteractionMode.UserAction);
-                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> TableUI_Canvas を Prefab として保存しました: {uiPrefabPath}</color>");
-            }
-
-            // テーブル全体プレハブ
             string tablePrefabPath = $"{prefabsDir}/CardTable_4Players.prefab";
             PrefabUtility.SaveAsPrefabAssetAndConnect(table, tablePrefabPath, InteractionMode.UserAction);
-            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> CardTable_4Players 全体を Prefab として保存しました: {tablePrefabPath}</color>");
-
             AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> シーン上の CardTable_4Players を Prefab に上書き保存しました: {tablePrefabPath}</color>");
+
+            // 保存と同時に全Transformをダンプ
+            DumpTableHierarchyTransforms();
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Dump Table Hierarchy Transforms")]
+        public static void DumpTableHierarchyTransforms()
+        {
+            GameObject table = GameObject.Find("CardTable_4Players");
+            if (table == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] シーン内に 'CardTable_4Players' が見つかりません。");
+                return;
+            }
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.AppendLine("=== [VRC-BoardGameKit] CardTable Hierarchy Transforms Dump ===");
+            DumpTransformRecursive(table.transform, 0, sb);
+            sb.AppendLine("==============================================================");
+            Debug.Log(sb.ToString());
+        }
+
+        private static void DumpTransformRecursive(Transform current, int depth, System.Text.StringBuilder sb)
+        {
+            string indent = new string(' ', depth * 2);
+            Vector3 pos = current.localPosition;
+            Vector3 rot = current.localEulerAngles;
+            Vector3 scale = current.localScale;
+            sb.AppendLine($"{indent}- {current.name}: Pos({pos.x:F3}, {pos.y:F3}, {pos.z:F3}) Rot({rot.x:F1}, {rot.y:F1}, {rot.z:F1}) Scale({scale.x:F3}, {scale.y:F3}, {scale.z:F3})");
+
+            for (int i = 0; i < current.childCount; i++)
+            {
+                DumpTransformRecursive(current.GetChild(i), depth + 1, sb);
+            }
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Re-apply NotoSansJP Font to All TMP in Scene & Prefab")]
+        public static void ReapplyNotoSansJPFontToAllTMP()
+        {
+            string fontPath = "Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset";
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(fontPath);
+            if (jpFont == null)
+            {
+                Debug.LogError($"[VRC-BoardGameKit] フォントアセットが見つかりません: {fontPath}");
+                return;
+            }
+
+            // 1. シーン内の全 TMP_Text (非アクティブ含む) を検索して再アタッチ
+            TMP_Text[] allSceneTexts = Object.FindObjectsOfType<TMP_Text>(true);
+            int sceneCount = 0;
+            foreach (TMP_Text txt in allSceneTexts)
+            {
+                Undo.RecordObject(txt, "Re-apply NotoSansJP Font");
+                txt.font = jpFont;
+                txt.fontSharedMaterial = jpFont.material;
+                EditorUtility.SetDirty(txt);
+                sceneCount++;
+            }
+            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> シーン内の全 {sceneCount} 箇所の TextMeshPro に NotoSansJP-Medium SDF を再アタッチしました！</color>");
+
+            // 2. Prefab内の全 TMP_Text も直接検索して再アタッチ＆保存
+            string prefabPath = "Assets/Projects/Prefabs/CardTable_4Players.prefab";
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+            if (prefab != null)
+            {
+                TMP_Text[] prefabTexts = prefab.GetComponentsInChildren<TMP_Text>(true);
+                int prefabCount = 0;
+                foreach (TMP_Text pTxt in prefabTexts)
+                {
+                    pTxt.font = jpFont;
+                    pTxt.fontSharedMaterial = jpFont.material;
+                    EditorUtility.SetDirty(pTxt);
+                    prefabCount++;
+                }
+                EditorUtility.SetDirty(prefab);
+                AssetDatabase.SaveAssets();
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> Prefab内の全 {prefabCount} 箇所の TextMeshPro にも NotoSansJP-Medium SDF を再アタッチして保存しました！</color>");
+            }
+
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
             AssetDatabase.Refresh();
         }
 
-        [MenuItem("Tools/VRC-BoardGameKit/Setup 4-Player Table in Scene")]
-        public static void BuildTable()
+        [MenuItem("Tools/VRC-BoardGameKit/Spawn Debug Click Test Buttons in Scene")]
+        public static void SpawnDebugClickButtons()
         {
+            EnsureAllProgramAssets();
+
+            // 既存のデバッグオブジェクトを削除
+            GameObject existing = GameObject.Find("DEBUG_Click_Test_Group");
+            if (existing != null) Undo.DestroyObjectImmediate(existing);
+
+            GameObject root = new GameObject("DEBUG_Click_Test_Group");
+            Undo.RegisterCreatedObjectUndo(root, "Spawn Debug Click Buttons");
+            root.transform.position = new Vector3(0, 1.2f, 0.8f); // プレイヤーの目の前
+
+            // 1. 3Dキューブ型インタラクトボタン (赤色Cube)
+            GameObject cubeBtn = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cubeBtn.name = "DEBUG_3D_Cube_Button";
+            cubeBtn.transform.SetParent(root.transform, false);
+            cubeBtn.transform.localPosition = new Vector3(-0.35f, 0, 0);
+            cubeBtn.transform.localScale = new Vector3(0.25f, 0.25f, 0.25f);
+
+            // 赤色マテリアル
+            Material redMat = new Material(Shader.Find("Standard"));
+            redMat.color = Color.red;
+            cubeBtn.GetComponent<MeshRenderer>().sharedMaterial = redMat;
+
+            // DebugClickButton アタッチ
+            DebugClickButton debugUdon = cubeBtn.AddUdonSharpComponent<DebugClickButton>();
+            UdonBehaviour udonBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(debugUdon);
+            if (udonBacking != null)
+            {
+                udonBacking.interactText = "【テスト】3Dボタンを押す (Click Test)";
+            }
+
+            // 2. 2D Canvas UIボタン
+            GameObject canvasObj = new GameObject("DEBUG_UI_Canvas");
+            canvasObj.transform.SetParent(root.transform, false);
+            canvasObj.transform.localPosition = new Vector3(0.35f, 0, 0);
+            canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
+
+            Canvas canvas = canvasObj.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvasObj.AddComponent<GraphicRaycaster>();
+            canvasObj.AddComponent<VRCUiShape>();
+
+            RectTransform canvasRt = canvasObj.GetComponent<RectTransform>();
+            canvasRt.sizeDelta = new Vector2(30f, 20f);
+
+            // UIボタン
+            GameObject btnObj = new GameObject("DEBUG_UI_Button");
+            btnObj.transform.SetParent(canvasObj.transform, false);
+            btnObj.transform.localPosition = Vector3.zero;
+
+            Image img = btnObj.AddComponent<Image>();
+            img.color = new Color(0f, 0.7f, 0.3f, 1f); // 緑色
+            img.raycastTarget = true;
+
+            Button btn = btnObj.AddComponent<Button>();
+            RectTransform btnRt = btnObj.GetComponent<RectTransform>();
+            btnRt.sizeDelta = new Vector2(28f, 18f);
+
+            BoxCollider btnCol = btnObj.AddComponent<BoxCollider>();
+            btnCol.size = new Vector3(28f, 18f, 0.2f);
+            btnCol.isTrigger = true;
+
+            DebugClickButton uiDebugUdon = btnObj.AddUdonSharpComponent<DebugClickButton>();
+            UdonBehaviour udonUIBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(uiDebugUdon);
+            if (udonUIBacking != null)
+            {
+                udonUIBacking.interactText = "【テスト】UIボタンを押す (UI Click Test)";
+            }
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(btn.onClick, uiDebugUdon.OnButtonClick);
+
+            // ボタンテキスト
+            GameObject textObj = new GameObject("Text (TMP)");
+            textObj.transform.SetParent(btnObj.transform, false);
+            textObj.transform.localPosition = Vector3.zero;
+            TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
+            if (jpFont != null) { tmp.font = jpFont; tmp.fontSharedMaterial = jpFont.material; }
+            tmp.text = "UI CLICK\nTEST";
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = Color.white;
+            tmp.fontSize = 4.5f;
+            tmp.raycastTarget = false;
+            RectTransform textRt = textObj.GetComponent<RectTransform>();
+            textRt.sizeDelta = new Vector2(28f, 18f);
+
+            Selection.activeGameObject = root;
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> デバッグ用クリック検知ボタン（3Dキューブ＆UIボタン）をスポーン位置の正面に生成しました！</color>");
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Rebuild & Save Table Prefabs (From Code Defaults)")]
+        public static void BuildAndSaveTablePrefab()
+        {
+            // 0. 全UdonSharpスクリプトのProgramAssetを自動確保・同期
+            EnsureAllProgramAssets();
+
+            string prefabsDir = "Assets/Projects/Prefabs";
+            if (!Directory.Exists(prefabsDir))
+            {
+                Directory.CreateDirectory(prefabsDir);
+                AssetDatabase.Refresh();
+            }
+
+            // 既存のテーブルがあれば削除
+            GameObject existing = GameObject.Find("CardTable_4Players");
+            if (existing != null)
+            {
+                Undo.DestroyObjectImmediate(existing);
+            }
+
+            // マテリアルの確保・自動生成
+            Material cardFrontMat = GetOrCreateCardMaterial("CardFront_Default", new Color(0.96f, 0.96f, 0.94f, 1f));
+            Material cardBackMat = GetOrCreateCardMaterial("CardBack_Default", new Color(0.65f, 0.12f, 0.15f, 1f));
+
             // 1. ルートオブジェクトの生成
             GameObject root = new GameObject("CardTable_4Players");
             Undo.RegisterCreatedObjectUndo(root, "Create Card Table");
@@ -78,11 +301,11 @@ namespace BoardGameKit.Editor
             tableLeg.transform.localPosition = new Vector3(0, 0.35f, 0);
             tableLeg.transform.localScale = new Vector3(0.3f, 0.35f, 0.3f);
 
-            // 3. 山札オブジェクト (Deck) - ★3D直接インタラクト対応
+            // 3. 山札オブジェクト (Deck) - 3D直接インタラクト (ユーザー調整値: 中央 0, 0.75, 0)
             GameObject deckObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
             deckObj.name = "DeckObject";
             deckObj.transform.SetParent(root.transform, false);
-            deckObj.transform.localPosition = new Vector3(0, 0.75f, 0.15f);
+            deckObj.transform.localPosition = new Vector3(0, 0.75f, 0f);
             deckObj.transform.localScale = new Vector3(0.12f, 0.05f, 0.18f);
 
             // 捨て札オブジェクト (Discard)
@@ -92,22 +315,24 @@ namespace BoardGameKit.Editor
             discardObj.transform.localPosition = new Vector3(0.22f, 0.73f, 0.15f);
             discardObj.transform.localScale = new Vector3(0.12f, 0.01f, 0.18f);
 
-            // 4. コアコンポーネントのアタッチ (DeckManager, TableManager, TableUIController)
-            DeckManager deckManager = root.AddComponent<DeckManager>();
+            // 4. コアコンポーネントのアタッチ (UdonSharpComponentExtensions 経由)
+            DeckManager deckManager = root.AddUdonSharpComponent<DeckManager>();
+            TableManager tableManager = root.AddUdonSharpComponent<TableManager>();
+            TableUIController uiController = root.AddUdonSharpComponent<TableUIController>();
+
+            // DeckManager 設定
             SerializedObject soDeck = new SerializedObject(deckManager);
             soDeck.FindProperty("deckMeshTransform").objectReferenceValue = deckObj.transform;
             soDeck.ApplyModifiedProperties();
-
-            TableManager tableManager = root.AddComponent<TableManager>();
-            TableUIController uiController = root.AddComponent<TableUIController>();
-
-            // UdonBehaviourの取得（SendCustomEventのターゲット）
-            UdonBehaviour udonUI = uiController.GetComponent<UdonBehaviour>();
+            UdonSharpEditorUtility.CopyProxyToUdon(deckManager);
 
             // 5. 座席と手札トレイの生成（東西南北の4席）
             int seatCount = 4;
             SeatController[] seats = new SeatController[seatCount];
             HandTrayController[] trays = new HandTrayController[seatCount];
+            TextMeshProUGUI[] seatStatusTexts = new TextMeshProUGUI[seatCount];
+
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
 
             Vector3[] seatOffsets = new Vector3[]
             {
@@ -118,6 +343,8 @@ namespace BoardGameKit.Editor
             };
 
             float[] seatYRotations = new float[] { 0f, 270f, 180f, 90f };
+            // 手札トレイのY軸回転: プレイヤーと正対するため座席に対して180度反転 (22:11当時のPrefab記録値)
+            float[] trayYRotations = new float[] { 180f, 90f, 0f, 270f };
 
             for (int i = 0; i < seatCount; i++)
             {
@@ -129,22 +356,26 @@ namespace BoardGameKit.Editor
                 seatObj.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
                 seatObj.transform.localRotation = Quaternion.Euler(0, seatYRotations[i], 0);
 
-                // VRCStation コンポーネントの追加
-                VRCStation station = seatObj.AddComponent<VRCStation>();
-
-                // SeatController コンポーネントの追加
-                SeatController seatCtrl = seatObj.AddComponent<SeatController>();
+                // SeatController コンポーネントの追加（※VRCStationを使用せず、クリックでプレイエリア連動）
+                SeatController seatCtrl = seatObj.AddUdonSharpComponent<SeatController>();
                 seats[i] = seatCtrl;
 
-                // 手札トレイの生成（座席とテーブルの中間に配置）
+                // 椅子への初期インタラクト表示名設定
+                UdonBehaviour udonSeat = UdonSharpEditorUtility.GetBackingUdonBehaviour(seatCtrl);
+                if (udonSeat != null)
+                {
+                    udonSeat.interactText = $"席 {i + 1} につく (Join Seat {i + 1})";
+                }
+
+                // 手札トレイの生成（ユーザー調整値: Y: 1.0f、距離: 0.66m、回転: 手前傾斜25度かつプレイヤー正対）
                 GameObject trayObj = new GameObject($"HandTray_{i}");
                 trayObj.transform.SetParent(root.transform, false);
                 Vector3 trayPos = Vector3.Lerp(tableTop.transform.localPosition, seatObj.transform.localPosition, 0.55f);
-                trayPos.y = 0.74f;
+                trayPos.y = 1.0f; // ユーザー調整値
                 trayObj.transform.localPosition = trayPos;
-                trayObj.transform.localRotation = Quaternion.Euler(25f, seatYRotations[i], 0); // 手前傾斜
+                trayObj.transform.localRotation = Quaternion.Euler(25f, trayYRotations[i], 0); // 手前傾斜＆プレイヤー正対
 
-                HandTrayController trayCtrl = trayObj.AddComponent<HandTrayController>();
+                HandTrayController trayCtrl = trayObj.AddUdonSharpComponent<HandTrayController>();
                 trays[i] = trayCtrl;
 
                 // 手札スロット（カードMeshRenderer × 5枚分）の生成
@@ -165,25 +396,96 @@ namespace BoardGameKit.Editor
                     cardMesh.transform.localRotation = Quaternion.identity;
 
                     cardRenderers[c] = cardMesh.GetComponent<MeshRenderer>();
+                    if (cardFrontMat != null) cardRenderers[c].sharedMaterial = cardFrontMat;
 
-                    // ★3D直接インタラクト: 手札カードをクリックで場に出せるようにする
-                    CardSlotController slotCtrl = cardMesh.AddComponent<CardSlotController>();
-                    slotCtrl.slotIndex = c;
-                    slotCtrl.seatIndex = i;
-                    slotCtrl.handTray = trayCtrl;
-                    slotCtrl.tableManager = tableManager;
+                    // 3D直接インタラクト: 手札カードスロット
+                    CardSlotController slotCtrl = cardMesh.AddUdonSharpComponent<CardSlotController>();
+                    SerializedObject soSlot = new SerializedObject(slotCtrl);
+                    soSlot.FindProperty("slotIndex").intValue = c;
+                    soSlot.FindProperty("seatIndex").intValue = i;
+                    soSlot.FindProperty("handTray").objectReferenceValue = trayCtrl;
+                    soSlot.FindProperty("tableManager").objectReferenceValue = tableManager;
+                    soSlot.ApplyModifiedProperties();
+                    UdonSharpEditorUtility.CopyProxyToUdon(slotCtrl);
 
                     // VRChatのインタラクト表示名設定
-                    UdonBehaviour udonSlot = cardMesh.GetComponent<UdonBehaviour>();
+                    UdonBehaviour udonSlot = UdonSharpEditorUtility.GetBackingUdonBehaviour(slotCtrl);
                     if (udonSlot != null)
                     {
                         udonSlot.interactText = "カードを出す (Play)";
                     }
                 }
 
+                // --- 個人用手元操作UI (PersonalUI_Canvas) の生成 ---
+                GameObject personalUIObj = new GameObject($"PersonalUI_Canvas_{i}");
+                personalUIObj.transform.SetParent(trayObj.transform, false);
+                personalUIObj.transform.localPosition = new Vector3(0, 0.01f, 0.14f); // 手札カードのすぐ奥上部
+                personalUIObj.transform.localRotation = Quaternion.Euler(0f, 180f, 0f); // Y軸180度回転: 上下を保ったまま裏表を反転して正読化
+                personalUIObj.transform.localScale = new Vector3(0.008f, 0.008f, 0.008f);
+
+                Canvas pCanvas = personalUIObj.AddComponent<Canvas>();
+                pCanvas.renderMode = RenderMode.WorldSpace;
+                personalUIObj.AddComponent<GraphicRaycaster>();
+                personalUIObj.AddComponent<VRCUiShape>();
+
+                RectTransform pCanvasRt = personalUIObj.GetComponent<RectTransform>();
+                pCanvasRt.sizeDelta = new Vector2(56f, 17f);
+
+                // 背景パネル
+                GameObject pPanelObj = new GameObject("Panel");
+                pPanelObj.transform.SetParent(personalUIObj.transform, false);
+                pPanelObj.transform.localPosition = Vector3.zero;
+                Image pPanelImg = pPanelObj.AddComponent<Image>();
+                pPanelImg.color = new Color(0.12f, 0.12f, 0.16f, 0.94f);
+                pPanelImg.raycastTarget = false;
+                RectTransform pPanelRt = pPanelObj.GetComponent<RectTransform>();
+                pPanelRt.sizeDelta = new Vector2(56f, 17f);
+
+                // 手元ステータステキスト
+                GameObject pStatusObj = new GameObject("StatusText (TMP)");
+                pStatusObj.transform.SetParent(personalUIObj.transform, false);
+                pStatusObj.transform.localPosition = new Vector3(0, 5.5f, 0);
+
+                TextMeshProUGUI pStatusTmp = pStatusObj.AddComponent<TextMeshProUGUI>();
+                if (jpFont != null)
+                {
+                    pStatusTmp.font = jpFont;
+                    pStatusTmp.fontSharedMaterial = jpFont.material;
+                }
+                pStatusTmp.text = $"[山札: 54 / すて札: 0]\nSeat {i + 1} 参加中 (In Play Area)";
+                pStatusTmp.alignment = TextAlignmentOptions.Center;
+                pStatusTmp.color = new Color(1f, 0.85f, 0.3f, 1f);
+                pStatusTmp.enableAutoSizing = true;
+                pStatusTmp.fontSizeMin = 1.8f;
+                pStatusTmp.fontSizeMax = 2.8f;
+                pStatusTmp.raycastTarget = false;
+                RectTransform pStatusRt = pStatusObj.GetComponent<RectTransform>();
+                pStatusRt.sizeDelta = new Vector2(54f, 4.5f);
+                seatStatusTexts[i] = pStatusTmp;
+
+                // 操作ボタン（上段: アクション、下段: 管理）
+                Vector2 pBtnSize = new Vector2(17f, 4.6f);
+                float row1Y = 0.5f;
+                float row2Y = -5.0f;
+
+                // 上段: 引く、パス、離席
+                CreateTMPButton(personalUIObj.transform, "DrawBtn", "引く (Draw)", new Vector2(-18.5f, row1Y), pBtnSize, uiController, "OnClickDrawButton", "カードを引く (Draw)");
+                CreateTMPButton(personalUIObj.transform, "PassBtn", "パス (Pass)", new Vector2(0f, row1Y), pBtnSize, uiController, "OnClickAdvanceTurnButton", "ターン終了 (Pass)");
+                CreateTMPButton(personalUIObj.transform, "LeaveBtn", "離席 (Leave)", new Vector2(18.5f, row1Y), pBtnSize, uiController, "OnClickLeaveSeatButton", "席を離れる (Leave)");
+
+                // 下段: 配る、シャッフル、リセット
+                CreateTMPButton(personalUIObj.transform, "DealBtn", "配る (Deal)", new Vector2(-18.5f, row2Y), pBtnSize, uiController, "OnClickDealButton", "カードを配る (Deal)");
+                CreateTMPButton(personalUIObj.transform, "ShuffleBtn", "シャッフル", new Vector2(0f, row2Y), pBtnSize, uiController, "OnClickShuffleButton", "山札シャッフル (Shuffle)");
+                CreateTMPButton(personalUIObj.transform, "ResetBtn", "リセット", new Vector2(18.5f, row2Y), pBtnSize, uiController, "OnClickResetButton", "リセット (Reset)");
+
+                // 初期状態は非表示（着席時のみローカル表示）
+                personalUIObj.SetActive(false);
+
                 // HandTrayController への参照バインド
                 SerializedObject soTray = new SerializedObject(trayCtrl);
                 soTray.FindProperty("maxHandCount").intValue = slotCount;
+                soTray.FindProperty("cardFrontMaterial").objectReferenceValue = cardFrontMat;
+                soTray.FindProperty("cardBackMaterial").objectReferenceValue = cardBackMat;
                 SerializedProperty propRenderers = soTray.FindProperty("cardMeshRenderers");
                 propRenderers.arraySize = slotCount;
                 for (int c = 0; c < slotCount; c++)
@@ -191,75 +493,36 @@ namespace BoardGameKit.Editor
                     propRenderers.GetArrayElementAtIndex(c).objectReferenceValue = cardRenderers[c];
                 }
                 soTray.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(trayCtrl);
 
                 // SeatController への参照バインド
                 SerializedObject soSeat = new SerializedObject(seatCtrl);
                 soSeat.FindProperty("seatIndex").intValue = i;
                 soSeat.FindProperty("linkedHandTray").objectReferenceValue = trayCtrl;
                 soSeat.FindProperty("tableManager").objectReferenceValue = tableManager;
+                soSeat.FindProperty("seatRenderer").objectReferenceValue = seatObj.GetComponent<MeshRenderer>();
+                soSeat.FindProperty("personalUIPanel").objectReferenceValue = personalUIObj;
                 soSeat.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(seatCtrl);
             }
 
-            // ★山札への3D直接インタラクト設定 (DeckInteractHandler)
-            DeckInteractHandler deckHandler = deckObj.AddComponent<DeckInteractHandler>();
-            deckHandler.tableManager = tableManager;
-            deckHandler.seatControllers = seats;
-            UdonBehaviour udonDeck = deckObj.GetComponent<UdonBehaviour>();
+            // 山札への3D直接インタラクト設定 (DeckInteractHandler)
+            DeckInteractHandler deckHandler = deckObj.AddUdonSharpComponent<DeckInteractHandler>();
+            SerializedObject soDeckHandler = new SerializedObject(deckHandler);
+            soDeckHandler.FindProperty("tableManager").objectReferenceValue = tableManager;
+            SerializedProperty propDeckSeats = soDeckHandler.FindProperty("seatControllers");
+            propDeckSeats.arraySize = seatCount;
+            for (int i = 0; i < seatCount; i++) propDeckSeats.GetArrayElementAtIndex(i).objectReferenceValue = seats[i];
+            soDeckHandler.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(deckHandler);
+
+            UdonBehaviour udonDeck = UdonSharpEditorUtility.GetBackingUdonBehaviour(deckHandler);
             if (udonDeck != null)
             {
                 udonDeck.interactText = "カードを引く (Draw)";
             }
 
-            // 6. 操作パネル (World Space Canvas) の生成
-            // ★シーンのインスペクタ調整値を反映 (Scale: 0.02f, Pos Y: 1.0f, Rot X: 35f)
-            GameObject canvasObj = new GameObject("TableUI_Canvas");
-            canvasObj.transform.SetParent(root.transform, false);
-            canvasObj.transform.localPosition = new Vector3(0, 1.0f, -0.25f);
-            canvasObj.transform.localRotation = Quaternion.Euler(35f, 0, 0);
-            canvasObj.transform.localScale = new Vector3(0.02f, 0.02f, 0.02f);
-
-            Canvas canvas = canvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-            canvasObj.AddComponent<GraphicRaycaster>();
-            canvasObj.AddComponent<VRCUiShape>();
-
-            BoxCollider canvasCollider = canvasObj.AddComponent<BoxCollider>();
-            canvasCollider.size = new Vector3(50f, 10f, 1f);
-            canvasCollider.isTrigger = true;
-
-            RectTransform canvasRect = canvasObj.GetComponent<RectTransform>();
-            canvasRect.anchoredPosition3D = new Vector3(0, 1.0f, -0.25f);
-            canvasRect.sizeDelta = new Vector2(50f, 10f);
-
-            // 背景パネル
-            GameObject panelObj = new GameObject("Panel");
-            panelObj.transform.SetParent(canvasObj.transform, false);
-            panelObj.transform.localPosition = Vector3.zero;
-            panelObj.transform.localScale = Vector3.one;
-            Image panelImg = panelObj.AddComponent<Image>();
-            panelImg.color = new Color(0.12f, 0.12f, 0.16f, 0.92f);
-            panelImg.raycastTarget = false;
-            RectTransform panelRect = panelObj.GetComponent<RectTransform>();
-            panelRect.sizeDelta = new Vector2(50f, 10f);
-
-            // 5つのボタン生成 (TextMeshProUGUI 版)
-            Button dealBtn = CreateTMPButton(canvasObj.transform, "DealBtn", "配る", new Vector2(-19f, 0), new Vector2(8.5f, 7f));
-            Button drawBtn = CreateTMPButton(canvasObj.transform, "DrawBtn", "引く", new Vector2(-9.5f, 0), new Vector2(8.5f, 7f));
-            Button shuffleBtn = CreateTMPButton(canvasObj.transform, "ShuffleBtn", "混ぜる", new Vector2(0f, 0), new Vector2(8.5f, 7f));
-            Button passBtn = CreateTMPButton(canvasObj.transform, "PassBtn", "パス", new Vector2(9.5f, 0), new Vector2(8.5f, 7f));
-            Button resetBtn = CreateTMPButton(canvasObj.transform, "ResetBtn", "リセット", new Vector2(19f, 0), new Vector2(8.5f, 7f));
-
-            // UdonBehaviour.SendCustomEvent 直結登録
-            if (udonUI != null)
-            {
-                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(dealBtn.onClick, udonUI.SendCustomEvent, "OnClickDealButton");
-                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(drawBtn.onClick, udonUI.SendCustomEvent, "OnClickDrawButton");
-                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(shuffleBtn.onClick, udonUI.SendCustomEvent, "OnClickShuffleButton");
-                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(passBtn.onClick, udonUI.SendCustomEvent, "OnClickAdvanceTurnButton");
-                UnityEditor.Events.UnityEventTools.AddStringPersistentListener(resetBtn.onClick, udonUI.SendCustomEvent, "OnClickResetButton");
-            }
-
-            // 7. TableManager & TableUIController への全自動配線
+            // 6. TableManager & TableUIController への全自動配線
             SerializedObject soTable = new SerializedObject(tableManager);
             soTable.FindProperty("deckManager").objectReferenceValue = deckManager;
 
@@ -272,20 +535,65 @@ namespace BoardGameKit.Editor
             for (int i = 0; i < seatCount; i++) propTrays.GetArrayElementAtIndex(i).objectReferenceValue = trays[i];
 
             soTable.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
 
+            // TableUIController 設定（中央パネル廃止・手元UI配列バインド）
             SerializedObject soUI = new SerializedObject(uiController);
             soUI.FindProperty("tableManager").objectReferenceValue = tableManager;
             soUI.FindProperty("deckManager").objectReferenceValue = deckManager;
+
+            SerializedProperty propUISeatTexts = soUI.FindProperty("seatStatusTexts");
+            propUISeatTexts.arraySize = seatCount;
+            for (int i = 0; i < seatCount; i++) propUISeatTexts.GetArrayElementAtIndex(i).objectReferenceValue = seatStatusTexts[i];
+
             SerializedProperty propUISeats = soUI.FindProperty("seatControllers");
             propUISeats.arraySize = seatCount;
             for (int i = 0; i < seatCount; i++) propUISeats.GetArrayElementAtIndex(i).objectReferenceValue = seats[i];
             soUI.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(uiController);
+
+            // 8. Prefab として保存
+            string tablePrefabPath = "Assets/Projects/Prefabs/CardTable_4Players.prefab";
+            PrefabUtility.SaveAsPrefabAssetAndConnect(root, tablePrefabPath, InteractionMode.AutomatedAction);
+            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> CardTable_4Players を Prefab として完全保存しました: {tablePrefabPath}</color>");
+
+            // シーンの保存マーク
+            EditorUtility.SetDirty(root);
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
 
             Selection.activeGameObject = root;
-            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> TextMeshPro ＆ 3D直接インタラクト対応テーブル環境のセットアップが完了しました！</color>");
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> テーブル環境のPrefab生成＆セットアップが完了しました！</color>");
+
+            // 生成結果の全Transformをダンプ
+            DumpTableHierarchyTransforms();
         }
 
-        private static Button CreateTMPButton(Transform parent, string name, string text, Vector2 pos, Vector2 size)
+        private static Material GetOrCreateCardMaterial(string name, Color color)
+        {
+            string matDir = "Assets/Projects/Components/Materials";
+            if (!Directory.Exists(matDir))
+            {
+                Directory.CreateDirectory(matDir);
+                AssetDatabase.Refresh();
+            }
+
+            string matPath = $"{matDir}/{name}.mat";
+            Material mat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (mat == null)
+            {
+                Shader shader = Shader.Find("Standard");
+                mat = new Material(shader);
+                mat.color = color;
+                AssetDatabase.CreateAsset(mat, matPath);
+                AssetDatabase.SaveAssets();
+            }
+            return mat;
+        }
+
+        private static Button CreateTMPButton(Transform parent, string name, string text, Vector2 pos, Vector2 size, TableUIController uiController, string eventName, string interactText)
         {
             GameObject btnObj = new GameObject(name);
             btnObj.transform.SetParent(parent, false);
@@ -302,7 +610,29 @@ namespace BoardGameKit.Editor
             RectTransform rt = btnObj.GetComponent<RectTransform>();
             rt.sizeDelta = size;
 
-            // ★TextMeshProUGUI による高精細ベクターテキスト
+            // ボタン専用コライダー (3D直接インタラクト・レーザー受信用)
+            BoxCollider col = btnObj.AddComponent<BoxCollider>();
+            col.size = new Vector3(size.x, size.y, 0.2f);
+            col.isTrigger = true;
+
+            // UIButtonHandler をアタッチして TableUIController へ直結
+            UIButtonHandler handler = btnObj.AddUdonSharpComponent<UIButtonHandler>();
+            SerializedObject soHandler = new SerializedObject(handler);
+            soHandler.FindProperty("targetUI").objectReferenceValue = uiController;
+            soHandler.FindProperty("customEventName").stringValue = eventName;
+            soHandler.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(handler);
+
+            UdonBehaviour udonBtn = UdonSharpEditorUtility.GetBackingUdonBehaviour(handler);
+            if (udonBtn != null)
+            {
+                udonBtn.interactText = interactText;
+            }
+
+            // Button.onClick とも連動
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(btn.onClick, handler.OnButtonClick);
+
+            // TextMeshProUGUI
             GameObject textObj = new GameObject("Text (TMP)");
             textObj.transform.SetParent(btnObj.transform, false);
             textObj.transform.localPosition = Vector3.zero;
@@ -310,12 +640,12 @@ namespace BoardGameKit.Editor
 
             TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
 
-            // ★日本語フォント (NotoSansJP-Medium SDF) およびそのMaterialを割り当て
+            // 日本語フォント (NotoSansJP-Medium SDF) およびそのMaterialを割り当て
             TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
             if (jpFont != null)
             {
                 tmp.font = jpFont;
-                tmp.fontSharedMaterial = jpFont.material; // ★マテリアルエラー防止の決定打
+                tmp.fontSharedMaterial = jpFont.material;
             }
 
             tmp.text = text;
@@ -323,13 +653,306 @@ namespace BoardGameKit.Editor
             tmp.color = Color.white;
             tmp.enableAutoSizing = true;
             tmp.fontSizeMin = 2f;
-            tmp.fontSizeMax = 5f;
+            tmp.fontSizeMax = 4.5f;
             tmp.raycastTarget = false;
 
             RectTransform textRt = textObj.GetComponent<RectTransform>();
             textRt.sizeDelta = size;
 
             return btn;
+        }
+
+        private static void EnsureAllProgramAssets()
+        {
+            string[] scripts = new string[]
+            {
+                "Assets/Projects/Scripts/Core/DeckManager.cs",
+                "Assets/Projects/Scripts/Core/TableManager.cs",
+                "Assets/Projects/Scripts/Core/TableUIController.cs",
+                "Assets/Projects/Scripts/Core/SeatController.cs",
+                "Assets/Projects/Scripts/Core/HandTrayController.cs",
+                "Assets/Projects/Scripts/Core/CardSlotController.cs",
+                "Assets/Projects/Scripts/Core/DeckInteractHandler.cs",
+                "Assets/Projects/Scripts/Core/UIButtonHandler.cs",
+                "Assets/Projects/Scripts/Core/DebugClickButton.cs",
+                "Assets/Projects/Scripts/Core/CardSnapZone.cs",
+                "Assets/Projects/Scripts/Core/CardController.cs",
+                "Assets/Projects/Scripts/Plugins/RulePluginBase.cs"
+            };
+
+            bool createdAny = false;
+            foreach (string scriptPath in scripts)
+            {
+                if (EnsureProgramAsset(scriptPath))
+                {
+                    createdAny = true;
+                }
+            }
+
+            if (createdAny)
+            {
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+                UdonSharpEditorUtility.ResetAssemblyCaches();
+            }
+
+            // 同期コンパイルを実行
+            UdonSharp.Compiler.UdonSharpCompilerV1.CompileSync();
+        }
+
+        private static bool EnsureProgramAsset(string scriptRelativePath)
+        {
+            string assetPath = Path.ChangeExtension(scriptRelativePath, ".asset");
+
+            UdonSharpProgramAsset programAsset = AssetDatabase.LoadAssetAtPath<UdonSharpProgramAsset>(assetPath);
+            if (programAsset == null)
+            {
+                MonoScript script = AssetDatabase.LoadAssetAtPath<MonoScript>(scriptRelativePath);
+                if (script == null)
+                {
+                    Debug.LogWarning($"[VRC-BoardGameKit] MonoScript not found at: {scriptRelativePath}");
+                    return false;
+                }
+
+                programAsset = ScriptableObject.CreateInstance<UdonSharpProgramAsset>();
+                programAsset.sourceCsScript = script;
+                AssetDatabase.CreateAsset(programAsset, assetPath);
+                AssetDatabase.SaveAssets();
+                AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceSynchronousImport);
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> UdonSharpProgramAsset を自動生成しました: {assetPath}</color>");
+                return true;
+            }
+            return false;
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Build Young Girl Card Prefab", false, 20)]
+        [MenuItem("Tools/VRC-BoardGameKit/幼い少女カードPrefab生成", false, 21)]
+        public static GameObject BuildYoungGirlCardPrefab()
+        {
+            EnsureAllProgramAssets();
+
+            string texturesDir = "Assets/Projects/Components/Textures/Cards";
+            string materialsDir = "Assets/Projects/Components/Materials";
+            string prefabsDir = "Assets/Projects/Prefabs";
+
+            if (!Directory.Exists(texturesDir)) Directory.CreateDirectory(texturesDir);
+            if (!Directory.Exists(materialsDir)) Directory.CreateDirectory(materialsDir);
+            if (!Directory.Exists(prefabsDir)) Directory.CreateDirectory(prefabsDir);
+
+            AssetDatabase.Refresh();
+
+            string frontTexPath = $"{texturesDir}/Card_Front_01_YoungGirl.png";
+            string backTexPath = $"{texturesDir}/Card_Back_Default.png";
+            string shaderPath = "Assets/Projects/Components/Shaders/CardTwoSided.shader";
+            string matPath = $"{materialsDir}/Card_01_YoungGirl.mat";
+            string prefabPath = $"{prefabsDir}/Card_01_YoungGirl.prefab";
+
+            // 1. テクスチャの取得
+            Texture2D frontTex = AssetDatabase.LoadAssetAtPath<Texture2D>(frontTexPath);
+            Texture2D backTex = AssetDatabase.LoadAssetAtPath<Texture2D>(backTexPath);
+
+            // 2. 両面シェーダーの取得
+            Shader shader = Shader.Find("BoardGameKit/CardTwoSided");
+            if (shader == null)
+            {
+                shader = AssetDatabase.LoadAssetAtPath<Shader>(shaderPath);
+            }
+
+            if (shader == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] BoardGameKit/CardTwoSided シェーダーが見つかりません。");
+                return null;
+            }
+
+            // 3. マテリアルの生成・プロパティ設定
+            Material cardMat = AssetDatabase.LoadAssetAtPath<Material>(matPath);
+            if (cardMat == null)
+            {
+                cardMat = new Material(shader);
+                AssetDatabase.CreateAsset(cardMat, matPath);
+            }
+            else
+            {
+                cardMat.shader = shader;
+            }
+
+            if (frontTex != null) cardMat.SetTexture("_MainTex", frontTex);
+            if (backTex != null) cardMat.SetTexture("_BackTex", backTex);
+            cardMat.SetFloat("_FlipBackUV", 1.0f);
+            cardMat.SetFloat("_ShowFront", 1.0f);
+            EditorUtility.SetDirty(cardMat);
+
+            // 4. QuadベースのカードGameObject生成 (1.2mアバター向け大迫力サイズ: 幅70cm x 高さ98cm)
+            GameObject cardObj = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            cardObj.name = "Card_01_YoungGirl";
+
+            // 標準のMeshColliderを削除し、適度な厚み(0.08m = 8cm)のBoxColliderを付与
+            MeshCollider meshCol = cardObj.GetComponent<MeshCollider>();
+            if (meshCol != null) Object.DestroyImmediate(meshCol);
+
+            BoxCollider boxCol = cardObj.AddComponent<BoxCollider>();
+            boxCol.size = new Vector3(1.0f, 1.0f, 0.08f);
+            boxCol.center = Vector3.zero;
+
+            // マテリアル適用
+            MeshRenderer mr = cardObj.GetComponent<MeshRenderer>();
+            if (mr != null) mr.sharedMaterial = cardMat;
+
+            // 5倍大判スケール設定 (幅70cm x 高さ98cm)
+            cardObj.transform.localScale = new Vector3(0.70f, 0.98f, 1.0f);
+
+            // 5. Rigidbody の追加 (完全Kinematic・空中静止運用)
+            Rigidbody rb = cardObj.AddComponent<Rigidbody>();
+            rb.mass = 0.5f;
+            rb.drag = 0f;
+            rb.angularDrag = 0.05f;
+            rb.useGravity = false;
+            rb.isKinematic = true;
+
+            // 6. VRCPickup の追加 (手持ち設定・慣性投げ飛ばしゼロ・AutoHoldオフ)
+            VRCPickup pickup = cardObj.AddComponent<VRCPickup>();
+            SerializedObject soVrcPickup = new SerializedObject(pickup);
+            soVrcPickup.FindProperty("AutoHold").intValue = 0; // 0 = No (AutoHold オフ)
+            soVrcPickup.FindProperty("orientation").intValue = 2; // 2 = Grip
+            soVrcPickup.FindProperty("ThrowVelocityBoostScale").floatValue = 0f;
+            soVrcPickup.FindProperty("ThrowVelocityBoostMinSpeed").floatValue = 0f;
+            soVrcPickup.FindProperty("InteractionText").stringValue = "カードを持つ (Pick up)";
+            soVrcPickup.FindProperty("UseText").stringValue = "カードを出す (Play)";
+            soVrcPickup.ApplyModifiedProperties();
+
+            // 7. CardController のアタッチ (Tell Don't Ask準拠: 暴れ防止・空中静止・磁石スナップ制御)
+            CardController cardController = cardObj.AddUdonSharpComponent<CardController>();
+            SerializedObject soCard = new SerializedObject(cardController);
+            soCard.FindProperty("keepKinematicWhileHeld").boolValue = true;
+            soCard.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(cardController);
+
+            // 8. CardSlotController (UdonSharp) のアタッチ (B仕様クリック用互換)
+            CardSlotController slotCtrl = cardObj.AddUdonSharpComponent<CardSlotController>();
+            SerializedObject soSlot = new SerializedObject(slotCtrl);
+            soSlot.FindProperty("slotIndex").intValue = 0;
+            soSlot.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(slotCtrl);
+
+            // 9. VRCObjectSync (位置・回転のネットワーク同期)
+            cardObj.AddComponent<VRCObjectSync>();
+
+            // 10. Prefabとして保存
+            GameObject savedPrefab = PrefabUtility.SaveAsPrefabAsset(cardObj, prefabPath);
+            Object.DestroyImmediate(cardObj);
+
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 幼い少女カード (Card_01_YoungGirl.prefab) [Pickup・空中静止・スナップ対応] を正常に生成・保存しました！ [サイズ: 70.0cm x 98.0cm]</color>");
+            return savedPrefab;
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Spawn Young Girl Card in Scene", false, 22)]
+        [MenuItem("Tools/VRC-BoardGameKit/シーンに幼い少女カード配置", false, 23)]
+        public static void SpawnYoungGirlCardInScene()
+        {
+            string prefabPath = "Assets/Projects/Prefabs/Card_01_YoungGirl.prefab";
+            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
+
+            if (prefab == null)
+            {
+                prefab = BuildYoungGirlCardPrefab();
+            }
+
+            if (prefab == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] Card_01_YoungGirl.prefab のロードに失敗しました。");
+                return;
+            }
+
+            // 既存の同名オブジェクトがあれば削除
+            GameObject existing = GameObject.Find("Card_01_YoungGirl");
+            if (existing != null) Undo.DestroyObjectImmediate(existing);
+
+            // プレイヤーの目の前に配置 (カード下端が床から浮くよう Y=1.2m に配置)
+            GameObject instance = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            instance.transform.position = new Vector3(0, 1.2f, 1.8f);
+            instance.transform.rotation = Quaternion.Euler(0, 180f, 0); // プレイヤーに正面が向くように
+            Undo.RegisterCreatedObjectUndo(instance, "Spawn Young Girl Card");
+            Selection.activeGameObject = instance;
+
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> シーン上の目の前に幼い少女カード (幅70cm x 高さ98cm) を配置しました！</color>");
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Spawn Snap Test Area in Scene", false, 24)]
+        [MenuItem("Tools/VRC-BoardGameKit/シーンにスナップ検証エリア配置", false, 25)]
+        public static void SpawnSnapTestAreaInScene()
+        {
+            EnsureAllProgramAssets();
+
+            // 既存のテストエリアがあれば削除
+            GameObject existing = GameObject.Find("DEBUG_Snap_Test_Area");
+            if (existing != null) Undo.DestroyObjectImmediate(existing);
+
+            GameObject root = new GameObject("DEBUG_Snap_Test_Area");
+            Undo.RegisterCreatedObjectUndo(root, "Spawn Snap Test Area");
+            root.transform.position = new Vector3(0, 0, 1.8f);
+
+            // 1. スナップ枠1 (左側スロット)
+            GameObject slot1 = CreateSnapSlot("SnapSlot_Left", new Vector3(-0.45f, 1.0f, 0), root.transform);
+
+            // 2. スナップ枠2 (右側スロット)
+            GameObject slot2 = CreateSnapSlot("SnapSlot_Right", new Vector3(0.45f, 1.0f, 0), root.transform);
+
+            // 3. テスト用カードの生成と配置 (中央手前に浮かせる)
+            GameObject cardPrefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Projects/Prefabs/Card_01_YoungGirl.prefab");
+            if (cardPrefab == null)
+            {
+                cardPrefab = BuildYoungGirlCardPrefab();
+            }
+
+            if (cardPrefab != null)
+            {
+                GameObject cardInstance = (GameObject)PrefabUtility.InstantiatePrefab(cardPrefab);
+                cardInstance.transform.SetParent(root.transform, false);
+                cardInstance.transform.localPosition = new Vector3(0, 0.9f, -0.4f); // 手前の低い位置に浮かせる
+                cardInstance.transform.localRotation = Quaternion.Euler(0, 180f, 0);
+            }
+
+            Selection.activeGameObject = root;
+            Debug.Log("<color=#00FF00><b>[VRC-BoardGameKit]</b> 目の前に【スナップ枠 × 2 ＋ 幼い少女カード】の検証エリアを配置しました！ClientSimで手持ち＆吸着テストが可能です。</color>");
+        }
+
+        private static GameObject CreateSnapSlot(string name, Vector3 localPos, Transform parent)
+        {
+            GameObject slotObj = new GameObject(name);
+            slotObj.transform.SetParent(parent, false);
+            slotObj.transform.localPosition = localPos;
+            slotObj.transform.localRotation = Quaternion.Euler(0, 180f, 0);
+
+            // 吸着検知用トリガーコライダー (幅80cm x 高さ110cm x 奥行30cm)
+            BoxCollider triggerCol = slotObj.AddComponent<BoxCollider>();
+            triggerCol.isTrigger = true;
+            triggerCol.size = new Vector3(0.80f, 1.10f, 0.30f);
+
+            // 視覚ガイド用の薄い枠板 (Quad)
+            GameObject guideQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            guideQuad.name = "GuideFrame";
+            guideQuad.transform.SetParent(slotObj.transform, false);
+            guideQuad.transform.localPosition = Vector3.zero;
+            guideQuad.transform.localScale = new Vector3(0.72f, 1.0f, 1.0f);
+            Object.DestroyImmediate(guideQuad.GetComponent<MeshCollider>());
+
+            // 半透明のガイド枠マテリアル
+            Material guideMat = new Material(Shader.Find("Unlit/Color"));
+            guideMat.color = new Color(0.2f, 0.7f, 1.0f, 0.25f); // 水色の半透明
+            guideQuad.GetComponent<MeshRenderer>().sharedMaterial = guideMat;
+
+            // CardSnapZone コンポーネントのアタッチ
+            CardSnapZone snapZone = slotObj.AddUdonSharpComponent<CardSnapZone>();
+            SerializedObject soZone = new SerializedObject(snapZone);
+            soZone.FindProperty("slotName").stringValue = name;
+            soZone.FindProperty("guideRenderer").objectReferenceValue = guideQuad.GetComponent<MeshRenderer>();
+            soZone.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(snapZone);
+
+            return slotObj;
         }
     }
 }

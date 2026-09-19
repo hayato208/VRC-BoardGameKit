@@ -42,6 +42,8 @@ namespace BoardGameKit.Core
             int cardId = handTray.GetCardIdAt(slotIndex);
             if (cardId == -1) return;
 
+            Debug.Log($"[VRC-BoardGameKit] [3D Interact] 手札のカードをクリックして場に出します (Seat: {seatIndex}, Slot: {slotIndex}, Card ID: {cardId})");
+
             // TableManager経由でカードを場に出す
             tableManager.PlayCard(seatIndex, slotIndex);
         }
