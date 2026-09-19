@@ -19,11 +19,11 @@ namespace BoardGameKit.Core
         [SerializeField] private int defaultCardCount = 54; // 【★】ゲームに応じて変更可能
 
         [Header("Visual Feedback")]
-        [Tooltip("山札の3Dオブジェクト（残枚数に応じてスケール変更等の演出用）")]
-        [SerializeField] private Transform deckMeshTransform; // 【★】将来の厚み演出用
+        [Tooltip("山札の3Dオブジェクト（残数0枚時の非表示制御用）")]
+        [SerializeField] private Transform deckMeshTransform;
 
-        [Tooltip("山札の残り枚数表示用テキスト (TMP)")]
-        [SerializeField] private TMP_Text remainingText;
+        [Tooltip("山札のインタラクトハンドラー（ツールチップInteractionText連動用）")]
+        public DeckInteractHandler interactHandler;
 
         [Header("Card Object Pool")]
         [Tooltip("山札が管理するカード実体配列（オブジェクトプール）")]
@@ -260,12 +260,18 @@ namespace BoardGameKit.Core
             if (deckMeshTransform != null)
             {
                 // 山札が0枚のときはメッシュを非表示、残数があれば表示（縦横比は維持）
-                deckMeshTransform.gameObject.SetActive(deckTopIndex > 0);
+                deckMeshTransform.gameObject.SetActive(deckTopIndex > 0 || !isInitialized);
             }
 
-            if (remainingText != null)
+            if (interactHandler == null)
             {
-                remainingText.text = $"山札: {deckTopIndex}枚";
+                interactHandler = GetComponentInChildren<DeckInteractHandler>();
+            }
+
+            if (interactHandler != null)
+            {
+                int count = isInitialized ? deckTopIndex : defaultCardCount;
+                interactHandler.UpdateInteractionText(count);
             }
         }
 
@@ -286,8 +292,9 @@ namespace BoardGameKit.Core
         }
 
         // --- ゲッター ---
-        public int GetRemainingCount() => deckTopIndex;
+        public int GetRemainingCount() => isInitialized ? deckTopIndex : defaultCardCount;
+        public int GetDefaultCardCount() => defaultCardCount;
         public int GetDiscardCount() => discardCount;
-        public bool IsDeckEmpty() => deckTopIndex <= 0;
+        public bool IsDeckEmpty() => isInitialized && deckTopIndex <= 0;
     }
 }

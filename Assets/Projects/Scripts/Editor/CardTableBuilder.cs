@@ -1300,29 +1300,10 @@ namespace BoardGameKit.Editor
             }
             deckQuad.GetComponent<MeshRenderer>().sharedMaterial = deckMat;
 
-            // 2. 山札上面の残数表示テキスト (TMP)
-            GameObject textObj = new GameObject("DeckCountText_TMP");
-            textObj.transform.SetParent(deckQuad.transform, false);
-            textObj.transform.localPosition = new Vector3(0, 0, -0.02f); // Quad表面の少し手前
-            textObj.transform.localRotation = Quaternion.Euler(0, 0, 0);
-            textObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
-
-            TextMeshPro countTmp = textObj.AddComponent<TextMeshPro>();
-            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
-            if (jpFont != null)
-            {
-                countTmp.font = jpFont;
-                countTmp.fontSharedMaterial = jpFont.material;
-            }
-            countTmp.text = $"山札: {poolCount}枚";
-            countTmp.alignment = TextAlignmentOptions.Center;
-            countTmp.fontSize = 28f;
-            countTmp.color = new Color(1.0f, 0.95f, 0.6f, 1.0f); // 金色
-
-            // 3. DeckManager のアタッチ
+            // 2. DeckManager のアタッチ
             DeckManager deckManager = deckRoot.AddUdonSharpComponent<DeckManager>();
 
-            // 4. カードオブジェクトプールの事前生成 (指定枚数の Card_01_YoungGirl をインスタンス化)
+            // 3. カードオブジェクトプールの事前生成 (指定枚数の Card_01_YoungGirl をインスタンス化)
             GameObject poolContainer = new GameObject("CardPoolContainer");
             poolContainer.transform.SetParent(deckRoot.transform, false);
             poolContainer.transform.localPosition = Vector3.zero;
@@ -1351,21 +1332,7 @@ namespace BoardGameKit.Editor
                 }
             }
 
-            // DeckManager 設定
-            SerializedObject soDeck = new SerializedObject(deckManager);
-            soDeck.FindProperty("defaultCardCount").intValue = poolCount;
-            soDeck.FindProperty("deckMeshTransform").objectReferenceValue = deckQuad.transform;
-            soDeck.FindProperty("remainingText").objectReferenceValue = countTmp;
-            SerializedProperty propPool = soDeck.FindProperty("cardPool");
-            propPool.arraySize = poolCount;
-            for (int c = 0; c < poolCount; c++)
-            {
-                propPool.GetArrayElementAtIndex(c).objectReferenceValue = poolCards[c];
-            }
-            soDeck.ApplyModifiedProperties();
-            UdonSharpEditorUtility.CopyProxyToUdon(deckManager);
-
-            // 5. DeckInteractHandler のアタッチ (3D直接インタラクト)
+            // 4. DeckInteractHandler のアタッチ (3D直接インタラクト)
             DeckInteractHandler deckHandler = deckQuad.AddUdonSharpComponent<DeckInteractHandler>();
             SerializedObject soHandler = new SerializedObject(deckHandler);
             soHandler.FindProperty("tableManager").objectReferenceValue = tableManager;
@@ -1381,6 +1348,20 @@ namespace BoardGameKit.Editor
             }
             soHandler.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(deckHandler);
+
+            // 5. DeckManager 設定
+            SerializedObject soDeck = new SerializedObject(deckManager);
+            soDeck.FindProperty("defaultCardCount").intValue = poolCount;
+            soDeck.FindProperty("deckMeshTransform").objectReferenceValue = deckQuad.transform;
+            soDeck.FindProperty("interactHandler").objectReferenceValue = deckHandler;
+            SerializedProperty propPool = soDeck.FindProperty("cardPool");
+            propPool.arraySize = poolCount;
+            for (int c = 0; c < poolCount; c++)
+            {
+                propPool.GetArrayElementAtIndex(c).objectReferenceValue = poolCards[c];
+            }
+            soDeck.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(deckManager);
 
             UdonBehaviour udonBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(deckHandler);
             if (udonBacking != null)

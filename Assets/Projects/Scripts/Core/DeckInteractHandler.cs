@@ -25,6 +25,31 @@ namespace BoardGameKit.Core
         [Tooltip("ドロー時に手元スロットへ吸着させるテストカード (任意)")]
         public CardController testCard;
 
+        private void Start()
+        {
+            if (deckManager == null)
+            {
+                deckManager = GetComponentInParent<DeckManager>();
+            }
+            int count = (deckManager != null) ? deckManager.GetRemainingCount() : 0;
+            UpdateInteractionText(count);
+        }
+
+        /// <summary>
+        /// 山札の残数に応じてホバー時のツールチップテキストを動的に更新する (Zero-Traffic)
+        /// </summary>
+        public void UpdateInteractionText(int remainingCount)
+        {
+            if (remainingCount > 0)
+            {
+                this.InteractionText = $"カードを引く (残り: {remainingCount}枚)";
+            }
+            else
+            {
+                this.InteractionText = "山札なし (0枚)";
+            }
+        }
+
         public override void Interact()
         {
             VRCPlayerApi localPlayer = Networking.LocalPlayer;
