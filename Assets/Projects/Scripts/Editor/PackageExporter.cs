@@ -9,7 +9,7 @@ namespace BoardGameKit.Editor
     /// </summary>
     public static class PackageExporter
     {
-        [MenuItem("Tools/VRC-BoardGameKit/Utilities/.unitypackage を書き出し (Export Package)", false, 34)]
+        [MenuItem("Tools/VRC-BoardGameKit/Utilities/.unitypackage を書き出し (Export Package)", false, 31)]
         public static void Export()
         {
             string exportPath = Path.GetFullPath(Path.Combine(Application.dataPath, "../../VRC-BoardGameKit.unitypackage"));

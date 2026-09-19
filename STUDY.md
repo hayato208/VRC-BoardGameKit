@@ -818,46 +818,48 @@ Unity組み込みの3D形状（プリミティブ）は、一見どれも「板�
 
 ---
 
-## 44. Unityエディタメニュー（MenuItem）の階層化・重複排除・デバッグ分離設計
+## 44. Unityエディタメニュー（MenuItem）のスリム化・GUI集約設計
 
-### ① 拡張機能乱立の根本原因と構造的課題
-* **機能追加ごとの場当たり登録**:
-  * 機能検証やデバッグ用ボタン（単体カード配置、スナップ検証枠、Transformダンプ、テスト用クリックボタン等）を開発の都度 `Tools/VRC-BoardGameKit/` の直下にフラットに追加していたため、メニュー項目が20個近く乱立し視認性が著しく悪化していた。
-* **日英表記の二重登録**:
-  * 「英語名」と「日本語名」の2つの `[MenuItem]` を同一メソッドに並列指定していた箇所が複数存在し、同じ機能が2重にメニューに表示されていた。
+### ① 拡張機能整理の経緯と不要機能の完全排除
+* **背景と課題**:
+  * 初期プロトタイプ段階で作成した「旧型クラシック円卓配置（`CardTable_4Players`）」や「クイック構築プリセット（手札3/4/5/7枠）」、「各種単体デバッグ生成」などのメニューが多数存在していた。
+  * 現在は自由度の高い **`Dynamic Arcade Field Builder`（GUIスライダーで枠数・半径・角度を自由指定）** および **`Deck & Card Editor`（山札枚数・テクスチャ一括設定GUI）** が完成したため、固定値プリセットや旧型テーブル生成機能は不要（役割重複）となっていた。
+* **実施した整理・スリム化**:
+  * 旧型円卓生成ロジックおよび `CardTable_4Players.prefab` を完全削除。
+  * 固定枠数クイック生成プリセット（3/4/5/7枠）および単体テスト生成メニューを削除。
+  * 配布用パッケージ書き出し機能（`PackageExporter.cs`）を独立新設。
+  * 最終的に、ユーザーが日常的に使う主要GUI 2種と、保守用ユーティリティ 2種のみに集約。
 
-### ② 階層的サブメニュー設計のベストプラクティス
-* ユーザーの利用目的（GUI操作、クイック構築、便利機能、開発デバッグ）に応じて明確に分類し、`priority` を使って順序を整理：
-  ```text
-  Tools / VRC-BoardGameKit /
-  ├── 🎛️ Dynamic Arcade Field Builder (円弧空間ビルダー GUI)   [priority 1]
-  ├── 🃏 Deck & Card Editor (山札・カード画像設定 GUI)          [priority 2]
-  ├── --------------------------------------------------
-  ├── 🏗️ Quick Setup (プリセット構築) /
-  │   ├── 円弧スロット空間構築 (手札5枠: 標準)                  [priority 10]
-  │   ├── 円弧スロット空間構築 (手札3枠: コンパクト)            [priority 11]
-  │   ├── 円弧スロット空間構築 (手札4枠: 左右対称)              [priority 12]
-  │   ├── 円弧スロット空間構築 (手札7枠: ワイド)                [priority 13]
-  │   └── クラシック円卓配置 (4-Player Classic Table)           [priority 20]
-  ├── 📦 Utilities (ユーティリティ) /
-  │   ├── NotoSansJPフォントを一括再適用 (Re-apply TMP Font)     [priority 30]
-  │   ├── 大判山札をシーン配置 (Spawn Deck)                     [priority 31]
-  │   ├── 大判カードPrefab生成 (Build Card Prefab)              [priority 32]
-  │   ├── クラシック円卓Prefabを再ビルド (Rebuild Table Prefab)  [priority 33]
-  │   └── .unitypackage を書き出し (Export Package)             [priority 34]
-  └── 🧪 Debug & Tests (デバッグ・検証) /
-      ├── スナップ検証エリアをシーン配置 (Spawn Snap Test Area)  [priority 50]
-      ├── 単体テストカードをシーン配置 (Spawn Test Card)        [priority 51]
-      ├── デバッグ用クリックボタン配置 (Spawn Click Test Buttons)[priority 52]
-      ├── シーン上のテーブル構造をダンプ (Dump Table Transforms) [priority 53]
-      └── シーン上のテーブルをPrefab保存 (Save Scene to Prefab)  [priority 54]
-  ```
+### ② 最終的なToolsメニュー構成
+```text
+Tools / VRC-BoardGameKit /
+├── 🎛️ Dynamic Arcade Field Builder (円弧空間ビルダー GUI)   [priority 1]
+├── 🃏 Deck & Card Editor (山札・カード画像設定 GUI)          [priority 2]
+├── --------------------------------------------------
+└── 📦 Utilities (ユーティリティ) /
+    ├── NotoSansJPフォントを一括再適用 (Re-apply TMP Font)     [priority 30]
+    └── .unitypackage を書き出し (Export Package)             [priority 31]
+```
 
 ### ③ 設計上の効果
-1. **トップレベルの視認性向上**: メインツールである2大GUIウィンドウ（円弧空間ビルダー・山札カード画像設定）が最優先で目に入る。
-2. **誤操作の防止**: 開発・テスト用の検証機能が `Debug & Tests` サブメニューに隔離され、通常利用時の誤爆を防止。
-3. **二重登録の完全解消**: 日英併記スタイル（「日本語名 (English Name)」）に統一し、メニュー項目数を半減・最適化。
-4. **パッケージ配布時の整合性**: ユーザーがBOOTHやVPMから導入した際にも迷わず直感的に使えるプロクオリティのメニュー体系を実現。
+1. **メニューの極限スリム化**: 最低限必要な2大GUIウィンドウと2大ユーティリティのみがシンプルに表示され、初見ユーザーでも迷わない。
+2. **保守性の向上**: 重複していたハードコードプリセットやレガシーロジック（約500行）が削ぎ落とされ、コードの可読性とメンテナンス性が飛躍的に向上。
+3. **安全性の担保**: `BuildYoungGirlCardPrefab()` など内部プール生成に必要なヘルパーは `[MenuItem]` のみを外しプライベート/内部メソッドとして維持することで、システム全体の動作安全性を100%維持。
+
+---
+
+## 45. レガシー機能の完全排除（デッドコード・旧Prefab削除）による保守性向上
+
+### ① 削除した要素とその安全性の確認
+1. **旧型円卓（`CardTable_4Players.prefab` / `PlaceTableFromPrefab` 等）**:
+   - 新型のプレイヤー包囲型円弧空間（`ArcadeFieldConfig` ＋ `DynamicCardField_4Players`）へ完全移行済みのため、旧Prefabおよび生成メソッド（`PlaceTableFromPrefab`, `SaveSceneTableToPrefab`, `DumpTableHierarchyTransforms`, `BuildAndSaveTablePrefab` 等）を削除。
+2. **クイック生成プリセット（`BuildDynamicArcadeFieldDefault/3/4/7`）**:
+   - `ArcadeFieldBuilderWindow` から任意パラメータで `BuildDynamicArcadeField(config)` を直接呼び出せるため、ラッパー関数のみを削除。
+3. **デバッグ用単体配置メニュー（`SpawnSnapTestArea`, `SpawnTestCard`, `SpawnDeckInScene` 等）**:
+   - シーン全体の円弧空間自動ビルダー内でスナップ枠・大判山札・カードプール・手元UIが統合生成されるため、単体配置メニューを全廃。
+4. **クラス二重定義（CS0101）の根本解消**:
+   - 配布用スクリプト `PackageExporter.cs` の旧パス（`test/Test Project/Assets/Editor/`）を整理し、`Assets/Projects/Scripts/Editor/` に一本化して重複コンパイルエラーを根絶。
+
 
 
 
