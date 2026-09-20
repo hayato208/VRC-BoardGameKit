@@ -152,6 +152,7 @@ namespace BoardGameKit.Editor
                 "Assets/Projects/Scripts/Core/CardController.cs",
                 "Assets/Projects/Scripts/Core/PersonalHandArea.cs",
                 "Assets/Projects/Scripts/Core/DrawCardButton.cs",
+                "Assets/Projects/Scripts/Core/PlayCardButton.cs",
                 "Assets/Projects/Scripts/Plugins/RulePluginBase.cs"
             };
 
@@ -398,6 +399,7 @@ namespace BoardGameKit.Editor
 
             SeatController[] seatControllers = new SeatController[4];
             DrawCardButton[] drawButtons = new DrawCardButton[4];
+            PlayCardButton[] playButtons = new PlayCardButton[4];
 
             for (int i = 0; i < 4; i++)
             {
@@ -454,14 +456,17 @@ namespace BoardGameKit.Editor
                     snapZones[s] = zone;
                 }
 
-                // C. パーソナル操作パネル (WorldSpace Canvas + VRCUiShape + BoxCollider + DrawCardButton)
+                // C. パーソナル操作パネル (WorldSpace Canvas + VRCUiShape + BoxCollider + DrawCardButton + PlayCardButton)
                 Vector3 uiPos = new Vector3(0f, Mathf.Max(config.slotHeightY - 0.35f, 0.50f), config.radius * 0.55f);
                 Quaternion uiRot = Quaternion.Euler(40f, 0f, 0f); // 手前見下ろし40度
-                GameObject personalUiObj = CreatePersonalUICanvas($"Personal_UI_Canvas_Seat{i}", uiPos, uiRot, handArea, null);
+                GameObject personalUiObj = CreatePersonalUICanvas($"Personal_UI_Canvas_Seat{i}", uiPos, uiRot, handArea, null, tableManager, i);
                 personalUiObj.transform.SetParent(slotContainer.transform, false);
 
                 DrawCardButton drawBtn = personalUiObj.GetComponentInChildren<DrawCardButton>();
                 drawButtons[i] = drawBtn;
+
+                PlayCardButton playBtn = personalUiObj.GetComponentInChildren<PlayCardButton>();
+                playButtons[i] = playBtn;
 
                 SerializedObject soHandArea = new SerializedObject(handArea);
                 soHandArea.FindProperty("slotCount").intValue = slotCount;
@@ -532,7 +537,7 @@ namespace BoardGameKit.Editor
         }
 
 
-        private static GameObject CreatePersonalUICanvas(string name, Vector3 localPos, Quaternion localRot, PersonalHandArea handArea, DeckManager deckMgr)
+        private static GameObject CreatePersonalUICanvas(string name, Vector3 localPos, Quaternion localRot, PersonalHandArea handArea, DeckManager deckMgr, TableManager tableManager, int seatIndex)
         {
             GameObject canvasObj = new GameObject(name);
             canvasObj.transform.localPosition = localPos;
@@ -546,71 +551,131 @@ namespace BoardGameKit.Editor
             canvasObj.AddComponent<VRCUiShape>();
 
             RectTransform canvasRt = canvasObj.GetComponent<RectTransform>();
-            canvasRt.sizeDelta = new Vector2(30f, 16f);
+            canvasRt.sizeDelta = new Vector2(62f, 16f); // 2ボタン配置用に横幅を拡張
 
-            // UIボタン (WorldSpace UI Button + BoxCollider)
-            GameObject btnObj = new GameObject("Draw_Button");
-            btnObj.transform.SetParent(canvasObj.transform, false);
-            btnObj.transform.localPosition = Vector3.zero;
-            btnObj.layer = 0; // Default layer
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
 
-            Image img = btnObj.AddComponent<Image>();
-            img.color = new Color(0.10f, 0.50f, 0.28f, 0.95f); // 視認性の高いエメラルドグリーン
-            img.raycastTarget = true;
+            // ==========================================
+            // 1. 左側: ドローボタン (Draw_Button)
+            // ==========================================
+            GameObject drawBtnObj = new GameObject("Draw_Button");
+            drawBtnObj.transform.SetParent(canvasObj.transform, false);
+            drawBtnObj.transform.localPosition = new Vector3(-15.5f, 0f, 0f);
+            drawBtnObj.layer = 0;
 
-            Button btn = btnObj.AddComponent<Button>();
-            btn.navigation = new Navigation { mode = Navigation.Mode.None };
-            RectTransform btnRt = btnObj.GetComponent<RectTransform>();
-            btnRt.sizeDelta = new Vector2(28f, 14f);
+            Image drawImg = drawBtnObj.AddComponent<Image>();
+            drawImg.color = new Color(0.10f, 0.50f, 0.28f, 0.95f); // 視認性の高いエメラルドグリーン
+            drawImg.raycastTarget = true;
 
-            BoxCollider btnCol = btnObj.AddComponent<BoxCollider>();
-            btnCol.size = new Vector3(28f, 14f, 0.2f);
-            btnCol.isTrigger = true;
+            Button drawBtn = drawBtnObj.AddComponent<Button>();
+            drawBtn.navigation = new Navigation { mode = Navigation.Mode.None };
+            RectTransform drawBtnRt = drawBtnObj.GetComponent<RectTransform>();
+            drawBtnRt.sizeDelta = new Vector2(28f, 14f);
 
-            DrawCardButton drawUdon = btnObj.AddUdonSharpComponent<DrawCardButton>();
-            UdonBehaviour udonUIBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(drawUdon);
-            if (udonUIBacking != null)
+            BoxCollider drawCol = drawBtnObj.AddComponent<BoxCollider>();
+            drawCol.size = new Vector3(28f, 14f, 0.2f);
+            drawCol.isTrigger = true;
+
+            DrawCardButton drawUdon = drawBtnObj.AddUdonSharpComponent<DrawCardButton>();
+            UdonBehaviour udonDrawBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(drawUdon);
+            if (udonDrawBacking != null)
             {
-                udonUIBacking.interactText = "カードを引く (Draw)";
+                udonDrawBacking.interactText = "カードを引く (Draw)";
             }
 
-            // Button.onClick と UdonSharp (OnButtonClick) の二重バインド (最重要)
-            UnityEditor.Events.UnityEventTools.AddPersistentListener(btn.onClick, drawUdon.OnButtonClick);
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(drawBtn.onClick, drawUdon.OnButtonClick);
 
-            SerializedObject soBtn = new SerializedObject(drawUdon);
-            soBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
+            SerializedObject soDrawBtn = new SerializedObject(drawUdon);
+            soDrawBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
             if (deckMgr != null)
             {
-                soBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+                soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
             }
-            soBtn.ApplyModifiedProperties();
+            soDrawBtn.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(drawUdon);
 
-            // ボタンテキスト (TMP NotoSansJP)
-            GameObject textObj = new GameObject("Text (TMP)");
-            textObj.transform.SetParent(btnObj.transform, false);
-            textObj.transform.localPosition = Vector3.zero;
-            textObj.transform.localScale = Vector3.one;
-            textObj.layer = 0;
+            // ドローテキスト (TMP)
+            GameObject drawTextObj = new GameObject("Text (TMP)");
+            drawTextObj.transform.SetParent(drawBtnObj.transform, false);
+            drawTextObj.transform.localPosition = Vector3.zero;
+            drawTextObj.transform.localScale = Vector3.one;
+            drawTextObj.layer = 0;
 
-            TextMeshProUGUI tmp = textObj.AddComponent<TextMeshProUGUI>();
-            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
+            TextMeshProUGUI drawTmp = drawTextObj.AddComponent<TextMeshProUGUI>();
             if (jpFont != null)
             {
-                tmp.font = jpFont;
-                tmp.fontSharedMaterial = jpFont.material;
+                drawTmp.font = jpFont;
+                drawTmp.fontSharedMaterial = jpFont.material;
+            }
+            drawTmp.text = "カードを引く\n<size=70%>DRAW CARD</size>";
+            drawTmp.alignment = TextAlignmentOptions.Center;
+            drawTmp.color = Color.white;
+            drawTmp.enableAutoSizing = true;
+            drawTmp.fontSizeMin = 2.0f;
+            drawTmp.fontSizeMax = 4.2f;
+            drawTmp.raycastTarget = false;
+            RectTransform drawTextRt = drawTextObj.GetComponent<RectTransform>();
+            drawTextRt.sizeDelta = new Vector2(28f, 14f);
+
+            // ==========================================
+            // 2. 右側: プレイボタン (Play_Button)
+            // ==========================================
+            GameObject playBtnObj = new GameObject("Play_Button");
+            playBtnObj.transform.SetParent(canvasObj.transform, false);
+            playBtnObj.transform.localPosition = new Vector3(15.5f, 0f, 0f);
+            playBtnObj.layer = 0;
+
+            Image playImg = playBtnObj.AddComponent<Image>();
+            playImg.color = new Color(0.12f, 0.42f, 0.65f, 0.95f); // 落ち着いたオーシャンブルー
+            playImg.raycastTarget = true;
+
+            Button playBtn = playBtnObj.AddComponent<Button>();
+            playBtn.navigation = new Navigation { mode = Navigation.Mode.None };
+            RectTransform playBtnRt = playBtnObj.GetComponent<RectTransform>();
+            playBtnRt.sizeDelta = new Vector2(28f, 14f);
+
+            BoxCollider playCol = playBtnObj.AddComponent<BoxCollider>();
+            playCol.size = new Vector3(28f, 14f, 0.2f);
+            playCol.isTrigger = true;
+
+            PlayCardButton playUdon = playBtnObj.AddUdonSharpComponent<PlayCardButton>();
+            UdonBehaviour udonPlayBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(playUdon);
+            if (udonPlayBacking != null)
+            {
+                udonPlayBacking.interactText = "カードを出す (Play)";
             }
 
-            tmp.text = "カードを引く\n<size=70%>DRAW CARD</size>";
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.color = Color.white;
-            tmp.enableAutoSizing = true;
-            tmp.fontSizeMin = 2.0f;
-            tmp.fontSizeMax = 4.2f;
-            tmp.raycastTarget = false;
+            UnityEditor.Events.UnityEventTools.AddPersistentListener(playBtn.onClick, playUdon.OnButtonClick);
 
-            RectTransform textRt = textObj.GetComponent<RectTransform>();
-            textRt.sizeDelta = new Vector2(28f, 14f);
+            SerializedObject soPlayBtn = new SerializedObject(playUdon);
+            soPlayBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
+            soPlayBtn.FindProperty("tableManager").objectReferenceValue = tableManager;
+            soPlayBtn.FindProperty("seatIndex").intValue = seatIndex;
+            soPlayBtn.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(playUdon);
+
+            // プレイテキスト (TMP)
+            GameObject playTextObj = new GameObject("Text (TMP)");
+            playTextObj.transform.SetParent(playBtnObj.transform, false);
+            playTextObj.transform.localPosition = Vector3.zero;
+            playTextObj.transform.localScale = Vector3.one;
+            playTextObj.layer = 0;
+
+            TextMeshProUGUI playTmp = playTextObj.AddComponent<TextMeshProUGUI>();
+            if (jpFont != null)
+            {
+                playTmp.font = jpFont;
+                playTmp.fontSharedMaterial = jpFont.material;
+            }
+            playTmp.text = "カードを出す\n<size=70%>PLAY CARD</size>";
+            playTmp.alignment = TextAlignmentOptions.Center;
+            playTmp.color = Color.white;
+            playTmp.enableAutoSizing = true;
+            playTmp.fontSizeMin = 2.0f;
+            playTmp.fontSizeMax = 4.2f;
+            playTmp.raycastTarget = false;
+            RectTransform playTextRt = playTextObj.GetComponent<RectTransform>();
+            playTextRt.sizeDelta = new Vector2(28f, 14f);
 
             EditorUtility.SetDirty(canvasObj);
             return canvasObj;
@@ -768,7 +833,7 @@ namespace BoardGameKit.Editor
 
             // 半透明のガイド枠マテリアル
             Material guideMat = new Material(Shader.Find("Unlit/Color"));
-            guideMat.color = new Color(0.2f, 0.7f, 1.0f, 0.25f); // 水色の半透明
+            guideMat.color = new Color(0.2f, 0.7f, 1.0f, 0.35f); // 視認性の高い水色半透明
             guideQuad.GetComponent<MeshRenderer>().sharedMaterial = guideMat;
 
             // CardSnapZone コンポーネントのアタッチ
@@ -776,6 +841,7 @@ namespace BoardGameKit.Editor
             SerializedObject soZone = new SerializedObject(snapZone);
             soZone.FindProperty("slotName").stringValue = name;
             soZone.FindProperty("guideRenderer").objectReferenceValue = guideQuad.GetComponent<MeshRenderer>();
+            soZone.FindProperty("defaultGuideColor").colorValue = new Color(0.2f, 0.7f, 1.0f, 0.35f);
             soZone.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(snapZone);
 

@@ -87,8 +87,13 @@ namespace BoardGameKit.Core
         public void SnapToZone(CardSnapZone zone, Vector3 targetPosition, Quaternion targetRotation)
         {
             this.currentZone = zone;
+            this.normalPosition = targetPosition;
+            this.normalRotation = targetRotation;
+            this.hasNormalTransform = true;
+            this.isSelected = false;
+
             SnapTo(targetPosition, targetRotation);
-            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ吸着し所属を記憶しました: {gameObject.name} -> {(zone != null ? zone.slotName : "None")}");
+            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ移動・吸着し基準位置を確定更新しました: {gameObject.name} -> {(zone != null ? zone.slotName : "None")} (Pos: {targetPosition})");
         }
 
         /// <summary>
