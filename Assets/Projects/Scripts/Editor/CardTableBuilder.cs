@@ -456,10 +456,10 @@ namespace BoardGameKit.Editor
                     snapZones[s] = zone;
                 }
 
-                // C. パーソナル操作パネル (WorldSpace Canvas + VRCUiShape + BoxCollider + DrawCardButton + PlayCardButton)
+                // C. パーソナル操作パネル (3D物理ボタンパネル: BoxCollider + UdonSharp Interact)
                 Vector3 uiPos = new Vector3(0f, Mathf.Max(config.slotHeightY - 0.35f, 0.50f), config.radius * 0.55f);
                 Quaternion uiRot = Quaternion.Euler(40f, 0f, 0f); // 手前見下ろし40度
-                GameObject personalUiObj = CreatePersonalUICanvas($"Personal_UI_Canvas_Seat{i}", uiPos, uiRot, handArea, null, tableManager, i);
+                GameObject personalUiObj = CreatePersonalButtonPanel($"Personal_Buttons_Seat{i}", uiPos, uiRot, handArea, null, tableManager, i);
                 personalUiObj.transform.SetParent(slotContainer.transform, false);
 
                 DrawCardButton drawBtn = personalUiObj.GetComponentInChildren<DrawCardButton>();
@@ -538,56 +538,67 @@ namespace BoardGameKit.Editor
         }
 
 
-        private static GameObject CreatePersonalUICanvas(string name, Vector3 localPos, Quaternion localRot, PersonalHandArea handArea, DeckManager deckMgr, TableManager tableManager, int seatIndex)
+        private static GameObject CreatePersonalButtonPanel(string name, Vector3 localPos, Quaternion localRot, PersonalHandArea handArea, DeckManager deckMgr, TableManager tableManager, int seatIndex)
         {
-            GameObject canvasObj = new GameObject(name);
-            canvasObj.transform.localPosition = localPos;
-            canvasObj.transform.localRotation = localRot;
-            canvasObj.transform.localScale = new Vector3(0.01f, 0.01f, 0.01f);
-            canvasObj.layer = 0; // Default layer
-
-            Canvas canvas = canvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-            canvasObj.AddComponent<GraphicRaycaster>();
-            canvasObj.AddComponent<VRCUiShape>();
-
-            RectTransform canvasRt = canvasObj.GetComponent<RectTransform>();
-            canvasRt.sizeDelta = new Vector2(62f, 16f); // 2ボタン配置用に横幅を拡張
+            GameObject panelRoot = new GameObject(name);
+            panelRoot.transform.localPosition = localPos;
+            panelRoot.transform.localRotation = localRot;
+            panelRoot.transform.localScale = Vector3.one;
 
             TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
 
+            // ボタン用マテリアル（静的アセットとしてロードまたは自動生成）
+            string materialsDir = "Assets/Projects/Components/Materials";
+            string drawMatPath = $"{materialsDir}/Button_Draw_Emerald.mat";
+            string playMatPath = $"{materialsDir}/Button_Play_Ocean.mat";
+
+            Shader unlitShader = Shader.Find("Unlit/Color");
+            if (unlitShader == null) unlitShader = Shader.Find("Standard");
+
+            Material drawMat = AssetDatabase.LoadAssetAtPath<Material>(drawMatPath);
+            if (drawMat == null)
+            {
+                drawMat = new Material(unlitShader);
+                drawMat.color = new Color(0.10f, 0.50f, 0.28f, 1.0f); // 視認性の高いエメラルドグリーン
+                AssetDatabase.CreateAsset(drawMat, drawMatPath);
+            }
+
+            Material playMat = AssetDatabase.LoadAssetAtPath<Material>(playMatPath);
+            if (playMat == null)
+            {
+                playMat = new Material(unlitShader);
+                playMat.color = new Color(0.12f, 0.42f, 0.65f, 1.0f); // 落ち着いたオーシャンブルー
+                AssetDatabase.CreateAsset(playMat, playMatPath);
+            }
+
             // ==========================================
-            // 1. 左側: ドローボタン (Draw_Button)
+            // 1. 左側: 3Dドローボタン (Draw_Button)
             // ==========================================
             GameObject drawBtnObj = new GameObject("Draw_Button");
-            drawBtnObj.transform.SetParent(canvasObj.transform, false);
-            drawBtnObj.transform.localPosition = new Vector3(-15.5f, 0f, 0f);
-            drawBtnObj.layer = 0;
+            drawBtnObj.transform.SetParent(panelRoot.transform, false);
+            drawBtnObj.transform.localPosition = new Vector3(-0.16f, 0f, 0f);
+            drawBtnObj.transform.localRotation = Quaternion.identity;
+            drawBtnObj.transform.localScale = Vector3.one;
 
-            Image drawImg = drawBtnObj.AddComponent<Image>();
-            drawImg.color = new Color(0.10f, 0.50f, 0.28f, 0.95f); // 視認性の高いエメラルドグリーン
-            drawImg.raycastTarget = true;
-
-            Button drawBtn = drawBtnObj.AddComponent<Button>();
-            drawBtn.navigation = new Navigation { mode = Navigation.Mode.None };
-            RectTransform drawBtnRt = drawBtnObj.GetComponent<RectTransform>();
-            drawBtnRt.sizeDelta = new Vector2(28f, 14f);
-
+            // 3D物理コライダー (28cm x 14cm x 2cm)
             BoxCollider drawCol = drawBtnObj.AddComponent<BoxCollider>();
-            drawCol.size = new Vector3(28f, 14f, 0.2f);
-            drawCol.isTrigger = true;
+            drawCol.size = new Vector3(0.28f, 0.14f, 0.02f);
+            drawCol.center = Vector3.zero;
 
+            // ボタン本体のCubeメッシュ（コライダーは親のBoxColliderで一括管理するため削除）
+            GameObject drawMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            drawMesh.name = "ButtonMesh";
+            drawMesh.transform.SetParent(drawBtnObj.transform, false);
+            drawMesh.transform.localPosition = Vector3.zero;
+            drawMesh.transform.localRotation = Quaternion.identity;
+            drawMesh.transform.localScale = new Vector3(0.28f, 0.14f, 0.02f);
+            Object.DestroyImmediate(drawMesh.GetComponent<Collider>());
+            drawMesh.GetComponent<MeshRenderer>().sharedMaterial = drawMat;
+
+            // UdonSharpコンポーネント (Interact() で動作)
             DrawCardButton drawUdon = drawBtnObj.AddUdonSharpComponent<DrawCardButton>();
             drawUdon.linkedHandArea = handArea;
             if (deckMgr != null) drawUdon.deckManager = deckMgr;
-
-            UdonBehaviour udonDrawBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(drawUdon);
-            if (udonDrawBacking != null)
-            {
-                udonDrawBacking.interactText = "カードを引く (Draw)";
-            }
-
-            UnityEditor.Events.UnityEventTools.AddPersistentListener(drawBtn.onClick, drawUdon.OnButtonClick);
 
             SerializedObject soDrawBtn = new SerializedObject(drawUdon);
             soDrawBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
@@ -598,14 +609,20 @@ namespace BoardGameKit.Editor
             soDrawBtn.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(drawUdon);
 
-            // ドローテキスト (TMP)
-            GameObject drawTextObj = new GameObject("Text (TMP)");
-            drawTextObj.transform.SetParent(drawBtnObj.transform, false);
-            drawTextObj.transform.localPosition = Vector3.zero;
-            drawTextObj.transform.localScale = Vector3.one;
-            drawTextObj.layer = 0;
+            UdonBehaviour udonDrawBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(drawUdon);
+            if (udonDrawBacking != null)
+            {
+                udonDrawBacking.interactText = "カードを引く (Draw)";
+            }
 
-            TextMeshProUGUI drawTmp = drawTextObj.AddComponent<TextMeshProUGUI>();
+            // 3D TextMeshPro（ボタン表面の2mm手前に配置）
+            GameObject drawTextObj = new GameObject("Text");
+            drawTextObj.transform.SetParent(drawBtnObj.transform, false);
+            drawTextObj.transform.localPosition = new Vector3(0f, 0f, -0.012f);
+            drawTextObj.transform.localRotation = Quaternion.identity;
+            drawTextObj.transform.localScale = Vector3.one;
+
+            TextMeshPro drawTmp = drawTextObj.AddComponent<TextMeshPro>();
             if (jpFont != null)
             {
                 drawTmp.font = jpFont;
@@ -615,45 +632,43 @@ namespace BoardGameKit.Editor
             drawTmp.alignment = TextAlignmentOptions.Center;
             drawTmp.color = Color.white;
             drawTmp.enableAutoSizing = true;
-            drawTmp.fontSizeMin = 2.0f;
-            drawTmp.fontSizeMax = 4.2f;
-            drawTmp.raycastTarget = false;
+            drawTmp.fontSizeMin = 0.5f;
+            drawTmp.fontSizeMax = 2.4f;
             RectTransform drawTextRt = drawTextObj.GetComponent<RectTransform>();
-            drawTextRt.sizeDelta = new Vector2(28f, 14f);
+            if (drawTextRt != null)
+            {
+                drawTextRt.sizeDelta = new Vector2(0.28f, 0.14f);
+            }
 
             // ==========================================
-            // 2. 右側: プレイボタン (Play_Button)
+            // 2. 右側: 3Dプレイボタン (Play_Button)
             // ==========================================
             GameObject playBtnObj = new GameObject("Play_Button");
-            playBtnObj.transform.SetParent(canvasObj.transform, false);
-            playBtnObj.transform.localPosition = new Vector3(15.5f, 0f, 0f);
-            playBtnObj.layer = 0;
+            playBtnObj.transform.SetParent(panelRoot.transform, false);
+            playBtnObj.transform.localPosition = new Vector3(0.16f, 0f, 0f);
+            playBtnObj.transform.localRotation = Quaternion.identity;
+            playBtnObj.transform.localScale = Vector3.one;
 
-            Image playImg = playBtnObj.AddComponent<Image>();
-            playImg.color = new Color(0.12f, 0.42f, 0.65f, 0.95f); // 落ち着いたオーシャンブルー
-            playImg.raycastTarget = true;
-
-            Button playBtn = playBtnObj.AddComponent<Button>();
-            playBtn.navigation = new Navigation { mode = Navigation.Mode.None };
-            RectTransform playBtnRt = playBtnObj.GetComponent<RectTransform>();
-            playBtnRt.sizeDelta = new Vector2(28f, 14f);
-
+            // 3D物理コライダー (28cm x 14cm x 2cm)
             BoxCollider playCol = playBtnObj.AddComponent<BoxCollider>();
-            playCol.size = new Vector3(28f, 14f, 0.2f);
-            playCol.isTrigger = true;
+            playCol.size = new Vector3(0.28f, 0.14f, 0.02f);
+            playCol.center = Vector3.zero;
 
+            // ボタン本体のCubeメッシュ（コライダーは削除）
+            GameObject playMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            playMesh.name = "ButtonMesh";
+            playMesh.transform.SetParent(playBtnObj.transform, false);
+            playMesh.transform.localPosition = Vector3.zero;
+            playMesh.transform.localRotation = Quaternion.identity;
+            playMesh.transform.localScale = new Vector3(0.28f, 0.14f, 0.02f);
+            Object.DestroyImmediate(playMesh.GetComponent<Collider>());
+            playMesh.GetComponent<MeshRenderer>().sharedMaterial = playMat;
+
+            // UdonSharpコンポーネント (Interact() で動作)
             PlayCardButton playUdon = playBtnObj.AddUdonSharpComponent<PlayCardButton>();
             playUdon.linkedHandArea = handArea;
             playUdon.tableManager = tableManager;
             playUdon.seatIndex = seatIndex;
-
-            UdonBehaviour udonPlayBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(playUdon);
-            if (udonPlayBacking != null)
-            {
-                udonPlayBacking.interactText = "カードを出す (Play)";
-            }
-
-            UnityEditor.Events.UnityEventTools.AddPersistentListener(playBtn.onClick, playUdon.OnButtonClick);
 
             SerializedObject soPlayBtn = new SerializedObject(playUdon);
             soPlayBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
@@ -662,14 +677,20 @@ namespace BoardGameKit.Editor
             soPlayBtn.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(playUdon);
 
-            // プレイテキスト (TMP)
-            GameObject playTextObj = new GameObject("Text (TMP)");
-            playTextObj.transform.SetParent(playBtnObj.transform, false);
-            playTextObj.transform.localPosition = Vector3.zero;
-            playTextObj.transform.localScale = Vector3.one;
-            playTextObj.layer = 0;
+            UdonBehaviour udonPlayBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(playUdon);
+            if (udonPlayBacking != null)
+            {
+                udonPlayBacking.interactText = "カードを出す (Play)";
+            }
 
-            TextMeshProUGUI playTmp = playTextObj.AddComponent<TextMeshProUGUI>();
+            // 3D TextMeshPro（ボタン表面の2mm手前に配置）
+            GameObject playTextObj = new GameObject("Text");
+            playTextObj.transform.SetParent(playBtnObj.transform, false);
+            playTextObj.transform.localPosition = new Vector3(0f, 0f, -0.012f);
+            playTextObj.transform.localRotation = Quaternion.identity;
+            playTextObj.transform.localScale = Vector3.one;
+
+            TextMeshPro playTmp = playTextObj.AddComponent<TextMeshPro>();
             if (jpFont != null)
             {
                 playTmp.font = jpFont;
@@ -679,14 +700,16 @@ namespace BoardGameKit.Editor
             playTmp.alignment = TextAlignmentOptions.Center;
             playTmp.color = Color.white;
             playTmp.enableAutoSizing = true;
-            playTmp.fontSizeMin = 2.0f;
-            playTmp.fontSizeMax = 4.2f;
-            playTmp.raycastTarget = false;
+            playTmp.fontSizeMin = 0.5f;
+            playTmp.fontSizeMax = 2.4f;
             RectTransform playTextRt = playTextObj.GetComponent<RectTransform>();
-            playTextRt.sizeDelta = new Vector2(28f, 14f);
+            if (playTextRt != null)
+            {
+                playTextRt.sizeDelta = new Vector2(0.28f, 0.14f);
+            }
 
-            EditorUtility.SetDirty(canvasObj);
-            return canvasObj;
+            EditorUtility.SetDirty(panelRoot);
+            return panelRoot;
         }
 
         private static GameObject CreateArcadeDeckObject(string name, Vector3 localPos, Quaternion localRot, TableManager tableManager, SeatController[] seats, int poolCount = 20)

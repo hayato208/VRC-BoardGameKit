@@ -32,14 +32,6 @@ namespace BoardGameKit.Core
             ExecuteDraw();
         }
 
-        /// <summary>
-        /// Unity UI (Button.onClick) / VRCUiShape レーザークリック用エントリーポイント
-        /// </summary>
-        public void OnButtonClick()
-        {
-            ExecuteDraw();
-        }
-
         private void ExecuteDraw()
         {
             if (deckManager == null || linkedHandArea == null)

@@ -1078,9 +1078,27 @@ Setting angular velocity of a kinematic body is not supported.
 * **プロキシ直接代入の徹底**:
   * `CardTableBuilder` 内で `drawUdon.linkedHandArea = handArea;`、`playUdon.linkedHandArea = handArea;` とC#プロキシに直接代入してから `CopyProxyToUdon` を呼ぶことで、シリアライズ参照消去を根本防止した。
 
+---
 
+## 44. WorldSpace uGUI Button のイベント伝達不全と 3D 物理ボタン（Interact）への完全移行
 
+### ① 発生していた現象と症状
+1. **uGUIボタンで2枚目以降が引けない（手元ドローボタン）**:
+   * 手元の「DRAW CARD」ボタンを押すと、1枚目は引けるが2枚目以降が反応しない、または不発となる現象が発生。
+   * 一方、山札（`DeckMesh_Quad`）のクリックやInspectorからの直接 `Interact` 実行では何枚でも正常にドロー可能であった。
+   * これにより、U#のドローロジックではなく「WorldSpace Canvas上のuGUI Buttonクリックイベント伝達」に問題があることが特定された。
 
+### ② 根本原因の構造
+* **VRChat環境におけるWorldSpace Canvas + uGUI Buttonの脆弱性**:
+   * WorldSpace Canvas、`UnityEngine.UI.Button`、`VRCUiShape`、GraphicRaycasterを組み合わせたuGUIは、VRChatワールドにおいてRaycastの遮断やフォーカス喪失、イベント重複・伝達不整合を引き起こしやすい。
+   * 現場規約（`docs/UdonSharp実装規約.md` 第1条）において「uGUI Buttonの原則禁止、Collider + UdonSharp `Interact()` による3D物理ボタン推奨」が定められていたにもかかわらず、手元UIパネルがuGUI Canvas+Buttonで構成されていた。
+
+### ③ 解決策と実装変更
+* **3D物理ボタン（BoxCollider ＋ UdonSharp `Interact()` ＋ 3D TextMeshPro）への刷新**:
+   * `CardTableBuilder.cs` の `CreatePersonalUICanvas` を全廃し、`CreatePersonalButtonPanel` へ刷新。
+   * 手元操作パネル上に薄型Cube（BoxCollider付き）を配置し、`DrawCardButton` / `PlayCardButton` を直接アタッチ。表示ラベルには 3D `TextMeshPro` を採用。
+   * ボタンクラス側の不要な `OnButtonClick()` を削除し、ネイティブの `Interact()` のみに一本化。
+   * これにより、uGUIのRaycasterやCanvasスケーリングの干渉を排除し、VRChatネイティブのインタラクション機構で100%確実・安定して動作するようになった。
 
 
 
