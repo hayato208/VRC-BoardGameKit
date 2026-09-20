@@ -44,6 +44,10 @@ namespace BoardGameKit.Core
         [Tooltip("オリジナルゲームルール拡張プラグイン（未設定時は汎用サンドボックスとして動作）")]
         [SerializeField] private RulePluginBase activeRulePlugin;
 
+        // --- 複数選択モード管理（ローカル実行時状態） ---
+        private const int MAX_TRACKED_CARDS = 64;
+        private bool[] isCardSelected = new bool[MAX_TRACKED_CARDS];
+
         // --- 同期変数 ---
         // 現在の手番（座席番号 0〜N-1）
         [UdonSynced]
@@ -219,6 +223,8 @@ namespace BoardGameKit.Core
                 activeRulePlugin.OnGameReset();
             }
 
+            ClearAllSelections();
+
             RequestSerialization();
         }
 
@@ -245,8 +251,7 @@ namespace BoardGameKit.Core
             }
             else if (playMode == CardPlayMode.MultiSelect)
             {
-                // Step 3 (T38) でトグル浮上処理を実装
-                Debug.Log($"[VRC-BoardGameKit] [TableManager] MultiSelect モードでカードがクリックされました: {card.gameObject.name}");
+                ToggleCardSelection(card);
             }
         }
 
@@ -267,6 +272,12 @@ namespace BoardGameKit.Core
             if (card.currentZone == centerPlayZone)
             {
                 return;
+            }
+
+            // 選択状態にあれば安全に解除
+            if (card.cardId >= 0 && card.cardId < isCardSelected.Length)
+            {
+                isCardSelected[card.cardId] = false;
             }
 
             // 操作プレイヤーにカードの所有権を移行
@@ -295,6 +306,102 @@ namespace BoardGameKit.Core
                 Debug.LogWarning($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアへのスナップが拒否されました: {card.gameObject.name}");
             }
         }
+
+        #region MultiSelect 複数選択管理 (Step 3: T38)
+
+        /// <summary>
+        /// カードの選択状態を反転（トグル）し、浮上演出を切り替える (MultiSelectモード)
+        /// </summary>
+        /// <param name="card">選択/解除対象のカード</param>
+        public void ToggleCardSelection(CardController card)
+        {
+            if (card == null) return;
+
+            // 中央プレイエリア（場）に出ているカードは手札選択の対象外として遮断
+            if (centerPlayZone != null && card.currentZone == centerPlayZone)
+            {
+                Debug.Log($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアにあるカードは選択できません: {card.gameObject.name}");
+                return;
+            }
+
+            // 操作プレイヤーにカードの所有権を移行（VRCObjectSyncによる強制同期巻き戻しを防止）
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            if (localPlayer != null && !Networking.IsOwner(card.gameObject))
+            {
+                Networking.SetOwner(localPlayer, card.gameObject);
+            }
+
+            int id = card.cardId;
+            if (id < 0 || id >= isCardSelected.Length)
+            {
+                Debug.LogWarning($"[VRC-BoardGameKit] [TableManager] カードIDが追跡許容範囲外です: {id} (許容最大: {isCardSelected.Length - 1})");
+                return;
+            }
+
+            // 選択フラグ反転
+            bool nextSelected = !isCardSelected[id];
+            isCardSelected[id] = nextSelected;
+
+            // カード自身へ視覚更新を命令 (Tell, Don't Ask)
+            card.SetSelectedVisual(nextSelected);
+
+            Debug.Log($"<color=#00FFFF><b>[VRC-BoardGameKit]</b> [TableManager] カード選択状態を切り替えました: {card.gameObject.name} (ID: {id}, Selected: {nextSelected})</color>");
+        }
+
+        /// <summary>
+        /// 全カードの選択状態を解除し、通常位置へ復帰させる
+        /// </summary>
+        public void ClearAllSelections()
+        {
+            for (int i = 0; i < isCardSelected.Length; i++)
+            {
+                isCardSelected[i] = false;
+            }
+
+            if (deckManager != null && deckManager.cardPool != null)
+            {
+                for (int i = 0; i < deckManager.cardPool.Length; i++)
+                {
+                    CardController card = deckManager.cardPool[i];
+                    if (card != null && card.isSelected)
+                    {
+                        card.SetSelectedVisual(false);
+                    }
+                }
+            }
+
+            Debug.Log("[VRC-BoardGameKit] [TableManager] 全カードの選択状態を解除しました。");
+        }
+
+        /// <summary>
+        /// 指定されたカードIDが現在選択中（浮上中）かどうかを判定する
+        /// </summary>
+        /// <param name="cardId">判定対象カードID</param>
+        /// <returns>選択中ならtrue</returns>
+        public bool IsCardSelected(int cardId)
+        {
+            if (cardId < 0 || cardId >= isCardSelected.Length) return false;
+            return isCardSelected[cardId];
+        }
+
+        /// <summary>
+        /// 現在選択されているカードの総数を取得する
+        /// </summary>
+        /// <returns>選択中のカード枚数</returns>
+        public int GetSelectedCardCount()
+        {
+            int count = 0;
+            for (int i = 0; i < isCardSelected.Length; i++)
+            {
+                if (isCardSelected[i])
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
+        #endregion
 
         private bool TakeOwnership()
         {
