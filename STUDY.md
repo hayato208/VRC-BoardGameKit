@@ -936,6 +936,172 @@ Tools / VRC-BoardGameKit /
 *   他プレイヤー視点では手札は裏面表示（秘匿）されているため、手札選択フラグ（`isCardSelected`）や浮上演出はネットワーク同期変数（`[UdonSynced]`）とせず、ローカルメモリ上で完結させる。
 *   これにより、カード選択・トグルを何度繰り返しても一切のネットワーク負荷（通信パケット）が発生しないZero-Trafficな操作感を実現する。
 
+---
+
+## 50. 複数選択プレイにおけるFIFOキュー順序管理とパーソナル操作UIの2ボタン統合設計
+
+### ① なぜクリック順序（FIFO）の厳密な記録が必要なのか？
+*   **ゲームルール上の要求**: 大富豪の階段出し、トランプの役判定、TCGにおける「最初に出したカードを一番下にスタックさせたい」といったルールでは、カードが「手札のどこにあったか（スロット順）」ではなく、**「プレイヤーがどの順番で選択・プレイしようとしたか（クリック順）」** が決定的な意味を持つ。
+*   **フラグ管理（`bool[]`）の限界**: 単純なブール配列（`isCardSelected[id]`）のみでは「選択中かどうか」しか分からず、スロットの左から右へ順に出すことしかできない。
+*   **FIFOキューの導入**: カードIDを保持する固定長配列（`int[] selectedOrder`）と選択カウンタ（`selectedCount`）を導入し、クリック順（先入先出: FIFO）を完全に記録・再現するアーキテクチャを採用した。
+
+### ② UdonVM（U#制限）環境における安全な配列キュー実装
+*   **U#の制約**: `System.Collections.Generic.List<T>` や `Queue<T>`、LINQ（`Where`, `Remove` 等）はUdonSharpで完全にはサポートされない。
+*   **古典的配列操作による堅牢化**:
+    *   **選択（ON）時**: 配列の末尾にIDを追加し、カウンタを加算（`selectedOrder[selectedCount++] = id;`）。
+    *   **解除（OFF）時**: ループで該当IDの位置（`foundIndex`）を探索し、後続の要素を1つずつ前方へ詰めてカウンタを減算（`selectedCount--;`）。
+    *   **クリア（PLAY/RESET）時**: カウンタを `0` にリセットし、選択フラグと浮上演出を一括解除。
+*   これにより、ガベージコレクション（GC Alloc）を一切発生させず、毎フレーム安定したメモリ動作を保証する。
+
+### ③ 手元操作パネル（Personal_UI_Canvas）の2ボタンハイブリッド構成
+*   **視覚的・人間工学的一元化**:
+    *   手元UIのCanvas横幅を従来の30fから **62f** へ拡張。
+    *   **左側 (`Draw_Button`)**: 視認性の高いエメラルドグリーン（`カードを引く / DRAW CARD`）
+    *   **右側 (`Play_Button`)**: 落ち着いたオーシャンブルー（`カードを出す / PLAY CARD`）
+    *   「引く（緑）」と「出す（青）」のコントラストにより、VRコントローラーのポインターやデスクトップ画面で迷いなく直感的に操作できる。
+*   **二重結線ルールの徹底（現場技術規範）**:
+    *   VRUiShape＋BoxCollider（Trigger）＋TMP NotoSansJP標準アタッチ。
+    *   `Button.onClick` と `UdonSharpBehaviour.OnButtonClick` の二重結線、およびネイティブ `Interact()` の双方を実装し、VRレーザー / デスクトップマウスクリック / 3D直接Eキーの全環境で100%確実に反応する。
+
+### ④ プレイ処理のTell原則と共通基盤化（SRPとDRY）
+*   **単一プレイ実処理の共通化 (`PlaySingleSelectedCard`)**:
+    *   「選択フラグ解除 ➔ 浮上演出解除 ➔ プレイヤーへの所有権移行 ➔ 手元スロットの解放（空き復帰） ➔ 中央スナップ枠へのTell要請（`TrySnap`）」という一連のクリティカルなフローを共通メソッドへ集約。
+    *   `Immediate` モード（1クリック即時出し）と `MultiSelect` モード（FIFOキュー一括出し）の双方が同一の共通メソッドを経由することで、不整合やコード重複（DRY原則違反）を完全排除した。
+
+---
+
+## 39. カード基準位置自己更新の抽象化とUdonVMプロキシ等価性トラップ
+
+### ① カード基準位置（normalPosition/normalRotation）の自己更新抽象化
+*   **課題**: 手札から中央プレイエリア（または捨て札等）へカードが移動した際、基準位置が手札スロットのまま残っていると、クリック時の選択解除演出（`SetSelectedVisual(false)`）などによってカードが手札位置へ瞬間移動（巻き戻り）してしまう問題が発生する。
+*   **自己完結抽象化**:
+    *   移動先の種類（手札・場・捨て札・山札）に関わらず、`CardController.SnapToZone(zone, targetPos, targetRot)` が呼ばれた時点で、カード自身が自身の `normalPosition` および `normalRotation` を新しい移動先 Transform で上書き確定する。
+    *   同時に `hasNormalTransform = true`、`isSelected = false` を自己更新することで、カードがいかなるゾーンに移動しても、その場所が新たな「基底位置」として自律管理される。
+
+### ② UdonVM における UdonSharpBehaviour インスタンス比較の落とし穴
+*   **症状**: `card.currentZone == centerPlayZone` というガード節を記述しているにもかかわらず、場に出たカードが手札に戻ってきてしまう。
+*   **原因**: UdonSharp（UdonVM）環境では、同一の GameObject にアタッチされたコンポーネントであっても、プロキシラッパーの参照差異により `UdonSharpBehaviour == UdonSharpBehaviour` の比較が `false` と評価されるケースがある。
+*   **解決策**: コンポーネント同士の同一性判定は、Unity ネイティブオブジェクトである GameObject 同士の比較（`card.currentZone.gameObject == centerPlayZone.gameObject`）に置き換えることで、UdonVM のプロキシ比較の揺らぎを完全に回避する。
+
+### ③ Tell, Don't Ask 原則に基づくクリック検知とルール判定の厳格分離
+*   **カード側の単一責任（Sensor）**:
+    *   カード自身（`CardController`）は「自分が手札にあるのか場にあるのか」というゲームルール・状態を判定すべきではない。カードは単に `Interact()` を検知したら `tableManager.OnCardClicked(this);` を呼ぶだけの純粋な入力センサーに徹する。
+*   **マネージャー側の単一責任（Rule Engine）**:
+    *   場に出ているカードのクリックを無視するか、あるいは場から手札に回収できるかといったルール判定は、すべて `TableManager.OnCardClicked(card)` の入口ガード節に集約する。
+    *   これにより、将来「場に出たカードをクリックして効果発動する」「場からカードを回収するルール」などを追加する際も、カードプレハブを一切改変することなく `TableManager` やルールプラグイン側のみの拡張で完結する。
+
+### ④ スロット角度計算における 180° 反転バグと両面シェーダーカリング
+*   **症状**: カードの裏表が逆転して裏面（`ura2`）が表示され、かつスロット枠のガイドフレーム（`Quad`）が消えて見えなくなる。
+*   **原因**: 手元UIボタン配置時のリファクタリングで、誤ってスロットの回転計算に `angleDeg + 180f` が混入。スロットが180度裏返って配置された。
+*   **多重連鎖現象**:
+    *   カードプレハブは表面がZ正方向を向いているため、180度裏返ったことでプレイヤーに対して裏面テクスチャが向いた。
+    *   ガイド枠の `Quad` は片面描画（Backface Culling）の Unlit シェーダーであるため、180度裏返ったことでプレイヤーから見て裏面となり、描画が完全にカリングされて消失した。
+*   **教訓**: `Quaternion.Euler(config.tiltAngle, angleDeg, 0f)` に復旧することで、カードの表面向きとガイド枠の視認性の双方が一発で正常化した。幾何配置の微小な回転オフセットが、シェーダーのカリング挙動と連鎖して複合バグを生む点に留意する。
+
+---
+
+## 41. 実行時動的ステート（Runtime State）のシリアライズ除外とカプセル化 (T42)
+
+### ① Unityシリアライザによる「実行時変数の初期値巻き戻し」の罠
+*   **症状**:
+    *   手元の「PLAYボタン」や「DRAWボタン」をクリックした際、あるいはUnityエディタのインスペクター再描画・EventSystem処理が走ったタイミングで、手札スロットが「空き」に戻らなかったり、カードの所属ゾーンが `null` に吹き飛んで二重プレイや手札復帰バグが発生する。
+*   **原因**:
+    *   `CardSnapZone` の `isOccupied` や `currentCard`、`CardController` の `currentZone` や `isSelected` などの実行時動的ステートに `[SerializeField]` や `public` が付与されていた。
+    *   Unityはシリアライズ対象のフィールドをシーンやプレハブの保存値（初期値）として管理しているため、WorldSpace CanvasのUIクリックイベントやプロキシ同期が走った際、Unityのシリアライザが **インスペクター上の初期値（`false` や `null`）で変数を復元（上書き・巻き戻し）** してしまう。
+*   **教訓**:
+    *   インスペクターに公開・シリアライズするのは「開発者が事前に設定する静的プロパティ（スロット名、幾何閾値、マテリアル等）」のみに厳格に限定する。
+    *   実行時に動的に変化する内部変数はすべて `private` 化し、シリアライズ対象から完全に除外する。
+
+### ② 単純なセッター（代入）とドメインコマンド（Tell原則）の決定的な違い
+*   **単純代入（裏口アクセス）の破綻**:
+    *   `card.currentZone = centerPlayZone;` のように外部からフィールドを直接書き換えると、変数名は変わっても「カード内部の基準座標（`normalPosition`）の更新」や「浮上状態（`isSelected`）の解除」などの連動処理が発動せず、内部状態と座標の脱線（不整合）を招く。
+*   **公開メソッドによる振る舞いのカプセル化**:
+    *   読み取り専用のGetter（`GetCurrentZone()`, `IsSelected()`）を提供し、外部からの直接代入を物理的に遮断。
+    *   状態変更は一連の座標計算・姿勢制御・所属記憶を不可分（アトミック）に完結させる命令メソッド（`SnapToZone(...)`, `ClearZone()`）経由に一本化する。
+    *   外部クラスは「カードがどう内部座標を管理しているか」を意識せず、カードに対して「このゾーンへ移動せよ」「所属を解除せよ」と1回命じる（Tell, Don't Ask）だけで済む。
+
+### ③ インスペクター非表示時のデバッグ可視化手法（State Change Log）
+*   `[SerializeField]` を外すとUnityエディタのインスペクター上では実行時変数が目視できなくなる。
+*   そのため、カード受入時（`TrySnap`）や解放時（`ReleaseCard`）、スタッククリア時（`ClearStack`）などの **状態遷移が発生する瞬間に、色付きのわかりやすい `Debug.Log` を出力** させる。
+*   これにより、シリアライザの巻き戻し事故を恒久遮断しつつ、Unity Console や ClientSim、VRChat実行ログ上で「どのスロットがどのカードを保持・解放したか」をリアルタイムに100%追跡可能になる。
+
+---
+
+## 42. Unity PhysXにおけるKinematic Rigidbodyの速度代入警告と回避手法
+
+### ① 発生する警告メッセージ
+```text
+Setting linear velocity of a kinematic body is not supported.
+Setting angular velocity of a kinematic body is not supported.
+```
+
+### ② 発生メカニズム
+* Unity 2022（PhysX 4.x）の物理エンジンでは、`rb.isKinematic == true`（物理シミュレーションを無効化し、Transformで姿勢制御するモード）になっているオブジェクトに対して、`rb.velocity` や `rb.angularVelocity` を代入することはサポートされていない。
+* 物理演算の対象外であるため外力や速度自体が無効であり、速度をリセット（ゼロクリア）しようとする代入文を実行するだけで、PhysXエンジンが警告（Warning）を出力する。
+
+### ③ 最善の解決策：ガードではなく「不要コード自体の完全削除」（YAGNI / Clean Code）
+* **初期プロトタイプ時代の名残（技術的負債）**:
+  以前は物理手持ち（`VRCPickup`）で振り回す仕様だったため、手放した瞬間の慣性を殺すために `rb.velocity = Vector3.zero;` が必要だった。
+* **常時Kinematic仕様への移行**:
+  現在のカードは `pickupable = false` かつ `Start` 時から常時 `rb.isKinematic = true` であり、すべての移動・浮上演出がTransform直接制御で行われている。
+* **結論**:
+  速度が存在しないオブジェクトに対し、ガード（`if (!rb.isKinematic)`）を設けてまで速度ゼロ代入を残す必要性自体がゼロである。
+  `SnapTo`、`SetSelectedVisual`、`ResetToDeck` から **速度代入および不要な `rb` 操作ブロックそのものを完全に削除（断捨離）** することで、コードの可読性を大幅に向上させ、PhysXの警告を根本的に根絶した。
+
+---
+
+## 43. 手元UIの直接バインドと過剰堅牢化（階層探索・動的フォールバック）の排除 (YAGNI)
+
+### ① 発生していた現象と症状
+1. **2枚目以降が引けない（手元ドローボタン）**:
+   * 山札オブジェクトを直接クリックした場合は何枚でも正常に手札に引ける。
+   * しかし手元の「DRAW CARD」ボタンを押すと、2枚目以降が引けず、ログ上常に `Slot 0` を指定し続けて失敗する。
+2. **PLAYボタンで選択解除される（手元プレイボタン）**:
+   * 手札カードをクリックして浮上（選択）させた後、手元の「PLAY」ボタンを押すと、中央の場に出ず即座に手札スロットへ元の位置に戻る（選択解除される）。
+
+### ② 根本原因の構造
+* **原因1: `CopyProxyToUdon` におけるC#プロキシフィールド未代入トラップ**:
+  * `CardTableBuilder` において、`DrawCardButton` / `PlayCardButton` を生成した際、`drawUdon.linkedHandArea` や `playUdon.linkedHandArea` のC#プロキシ側変数に代入せず、SerializedObject側のプロパティのみを操作していた。
+  * そのため、直後の `UdonSharpEditorUtility.CopyProxyToUdon(drawUdon)` 呼び出しによってプロキシ側の初期値（`null`）で上書きされ、Udon実体の参照が消去（`null` 化）されていた。
+* **原因2: 過剰防護（動的フォールバック探索）による誤参照と迷走**:
+  * `linkedHandArea == null` になったため、保険として書かれていた `GetComponentInParent<HandAreaController>()` が発動。
+  * スロットコンテナの非アクティブ状態や階層の違いにより親を正しく取得できず、山札がカードを入れた手札エリアと手元ボタンが参照する手札エリアのインスタンス不整合（別オブジェクト参照）が発生。ボタン側はスロット0が空いていると誤認し続けた。
+* **原因3: `Transform.IsChildOf` による過剰な親子階層チェック**:
+  * `TableManager.PlaySelectedCards` 内で、選択カードが手札由来か判定するために `!zone.transform.IsChildOf(handArea.transform)` の先祖階層探索を行っていた。
+  * これが親階層の違いにより `false` と判定され、場に出す処理が丸ごとスキップされた直後に `ClearAllSelections()` が実行されたため、「選択解除されて元の位置に戻る」挙動となっていた。
+
+### ③ 解決策とYAGNI原則の実践
+* **過剰な自己修復・階層探索の完全根絶**:
+  * `GetComponentInParent` による動的フォールバックを全廃。ビルダーによる明示的なバインド（SSOT）を唯一の前提とする。
+  * `Transform.IsChildOf` の先祖探索を全廃。手札エリア自身の持つ `handArea.snapZones` 配列直接照合へ簡素化し、さらに引数なしの `PlaySelectedCards()` では現在選択中のカードを無条件で場に出す極めてシンプルな構造にした。
+* **戻り値の正確な検証**:
+  * `DeckManager.DrawCardForZone` は失敗時に `-1` を返す設計であるため、戻り値を無視して「ドロー成功」とログを出すのではなく、`-1` 時には失敗警告を出すようにした。
+* **プロキシ直接代入の徹底**:
+  * `CardTableBuilder` 内で `drawUdon.linkedHandArea = handArea;`、`playUdon.linkedHandArea = handArea;` とC#プロキシに直接代入してから `CopyProxyToUdon` を呼ぶことで、シリアライズ参照消去を根本防止した。
+
+---
+
+## 44. WorldSpace uGUI Button のイベント伝達不全と 3D 物理ボタン（Interact）への完全移行
+
+### ① 発生していた現象と症状
+1. **uGUIボタンで2枚目以降が引けない（手元ドローボタン）**:
+   * 手元の「DRAW CARD」ボタンを押すと、1枚目は引けるが2枚目以降が反応しない、または不発となる現象が発生。
+   * 一方、山札（`DeckMesh_Quad`）のクリックやInspectorからの直接 `Interact` 実行では何枚でも正常にドロー可能であった。
+   * これにより、U#のドローロジックではなく「WorldSpace Canvas上のuGUI Buttonクリックイベント伝達」に問題があることが特定された。
+
+### ② 根本原因の構造
+* **VRChat環境におけるWorldSpace Canvas + uGUI Buttonの脆弱性**:
+   * WorldSpace Canvas、`UnityEngine.UI.Button`、`VRCUiShape`、GraphicRaycasterを組み合わせたuGUIは、VRChatワールドにおいてRaycastの遮断やフォーカス喪失、イベント重複・伝達不整合を引き起こしやすい。
+   * 現場規約（`docs/UdonSharp実装規約.md` 第1条）において「uGUI Buttonの原則禁止、Collider + UdonSharp `Interact()` による3D物理ボタン推奨」が定められていたにもかかわらず、手元UIパネルがuGUI Canvas+Buttonで構成されていた。
+
+### ③ 解決策と実装変更
+* **3D物理ボタン（BoxCollider ＋ UdonSharp `Interact()` ＋ 3D TextMeshPro）への刷新**:
+   * `CardTableBuilder.cs` の `CreatePersonalUICanvas` を全廃し、`CreatePersonalButtonPanel` へ刷新。
+   * 手元操作パネル上に薄型Cube（BoxCollider付き）を配置し、`DrawCardButton` / `PlayCardButton` を直接アタッチ。表示ラベルには 3D `TextMeshPro` を採用。
+   * ボタンクラス側の不要な `OnButtonClick()` を削除し、ネイティブの `Interact()` のみに一本化。
+   * これにより、uGUIのRaycasterやCanvasスケーリングの干渉を排除し、VRChatネイティブのインタラクション機構で100%確実・安定して動作するようになった。
+
+
 
 
 

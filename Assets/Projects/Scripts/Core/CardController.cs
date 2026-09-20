@@ -22,9 +22,6 @@ namespace BoardGameKit.Core
         public TableManager tableManager;
 
         [Header("Selection Visual")]
-        [Tooltip("現在選択中（浮上中）かどうか")]
-        public bool isSelected = false;
-
         [Tooltip("選択時の浮上オフセット量 (m)")]
         public float selectionElevation = 0.15f;
 
@@ -32,16 +29,14 @@ namespace BoardGameKit.Core
         [Tooltip("手で持っている間も isKinematic = true を維持するか（暴れ・ガタつき完全防止）")]
         public bool keepKinematicWhileHeld = true;
 
-        [Header("Runtime State")]
-        [Tooltip("現在収まっているスナップ枠")]
-        public CardSnapZone currentZone = null;
-
-        [Tooltip("現在接近中（最良候補）のスナップ枠")]
-        public CardSnapZone candidateZone = null;
-
         [Header("Snap Threshold")]
         [Tooltip("スロット中心とカード中心の最大吸着許容距離 (m) ※カード幅0.7mに対し0.45m以内＝十分な重なりが必要")]
         public float maxSnapDistance = 0.45f;
+
+        // --- 実行時動的ステート（シリアライズ除外・カプセル化） ---
+        private bool isSelected = false;
+        private CardSnapZone currentZone = null;
+        private CardSnapZone candidateZone = null;
 
         private Rigidbody rb;
         private bool isHeld = false;
@@ -76,7 +71,31 @@ namespace BoardGameKit.Core
             }
         }
 
-        #region Tell, Don't Ask 外部公開命令 (Commands)
+        #region Tell, Don't Ask 外部公開命令 (Commands) ＆ カプセル化アクセサ (Getters)
+
+        /// <summary>
+        /// 現在収まっているスナップ枠を取得する（読み取り専用Getter）
+        /// </summary>
+        public CardSnapZone GetCurrentZone()
+        {
+            return currentZone;
+        }
+
+        /// <summary>
+        /// 現在選択中（浮上中）かどうかを取得する（読み取り専用Getter）
+        /// </summary>
+        public bool IsSelected()
+        {
+            return isSelected;
+        }
+
+        /// <summary>
+        /// 所属スナップ枠の割り当てを解除する命令（Tell）
+        /// </summary>
+        public void ClearZone()
+        {
+            this.currentZone = null;
+        }
 
         /// <summary>
         /// 指定されたスナップ枠へカード自身を吸着整列させ、所属ゾーンを確実に記憶する（Tell原則）。
@@ -87,8 +106,13 @@ namespace BoardGameKit.Core
         public void SnapToZone(CardSnapZone zone, Vector3 targetPosition, Quaternion targetRotation)
         {
             this.currentZone = zone;
+            this.normalPosition = targetPosition;
+            this.normalRotation = targetRotation;
+            this.hasNormalTransform = true;
+            this.isSelected = false;
+
             SnapTo(targetPosition, targetRotation);
-            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ吸着し所属を記憶しました: {gameObject.name} -> {(zone != null ? zone.slotName : "None")}");
+            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ移動・吸着し基準位置を確定更新しました: {gameObject.name} -> {(zone != null ? zone.slotName : "None")} (Pos: {targetPosition})");
         }
 
         /// <summary>
@@ -106,13 +130,6 @@ namespace BoardGameKit.Core
 
             transform.position = targetPosition;
             transform.rotation = targetRotation;
-
-            if (rb != null)
-            {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
-            }
 
             gameObject.SetActive(true);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カード自身が指定位置へ吸着整列しました: {gameObject.name}");
@@ -145,13 +162,6 @@ namespace BoardGameKit.Core
                 transform.rotation = normalRotation;
             }
 
-            if (rb != null)
-            {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
-            }
-
             Debug.Log($"[VRC-BoardGameKit] [CardController] 選択視覚状態を更新しました: {gameObject.name} (Selected: {isSelected})");
         }
 
@@ -163,8 +173,6 @@ namespace BoardGameKit.Core
         {
             if (rb != null)
             {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
                 rb.isKinematic = true;
             }
 
@@ -190,13 +198,6 @@ namespace BoardGameKit.Core
 
             transform.position = deckPos;
             transform.rotation = deckRot;
-
-            if (rb != null)
-            {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
-            }
 
             gameObject.SetActive(false);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カードを山札へ回収・初期化しました: {gameObject.name} (ID: {cardId})");

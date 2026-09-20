@@ -47,6 +47,8 @@ namespace BoardGameKit.Core
         // --- 複数選択モード管理（ローカル実行時状態） ---
         private const int MAX_TRACKED_CARDS = 64;
         private bool[] isCardSelected = new bool[MAX_TRACKED_CARDS];
+        private int[] selectedOrder = new int[MAX_TRACKED_CARDS]; // クリック順序（FIFO）キュー
+        private int selectedCount = 0; // 現在選択中の枚数
 
         // --- 同期変数 ---
         // 現在の手番（座席番号 0〜N-1）
@@ -245,6 +247,17 @@ namespace BoardGameKit.Core
             if (card == null) return;
             Debug.Log($"[VRC-BoardGameKit] [TableManager] カードがクリックされました: {card.gameObject.name} (ID: {card.cardId}, PlayMode: {playMode})");
 
+            // カードが場（中央プレイエリア）に出されている場合は、操作対象外のため何もせず即座にreturn
+            CardSnapZone zone = card.GetCurrentZone();
+            if (centerPlayZone != null && zone != null)
+            {
+                if (zone.gameObject == centerPlayZone.gameObject)
+                {
+                    Debug.Log($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアにあるカードは操作対象外のため無視します: {card.gameObject.name}");
+                    return;
+                }
+            }
+
             if (playMode == CardPlayMode.Immediate)
             {
                 PlayCardImmediate(card);
@@ -252,6 +265,53 @@ namespace BoardGameKit.Core
             else if (playMode == CardPlayMode.MultiSelect)
             {
                 ToggleCardSelection(card);
+            }
+        }
+
+        /// <summary>
+        /// 1枚のカードを中央プレイエリアへ整列配置する共通実処理
+        /// </summary>
+        /// <param name="card">プレイするカード</param>
+        /// <returns>スナップ配置が成功したかどうか</returns>
+        private bool PlaySingleSelectedCard(CardController card)
+        {
+            if (card == null || centerPlayZone == null) return false;
+
+            // すでに中央プレイエリアにある場合はスキップ (GameObject比較によりUdonVMプロキシ不整合を恒久遮断)
+            CardSnapZone currentZone = card.GetCurrentZone();
+            if (currentZone != null && currentZone.gameObject == centerPlayZone.gameObject) return false;
+
+            // 選択状態にあれば安全に解除
+            if (card.cardId >= 0 && card.cardId < isCardSelected.Length)
+            {
+                isCardSelected[card.cardId] = false;
+            }
+            card.SetSelectedVisual(false);
+
+            // 操作プレイヤーにカードの所有権を移行
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            if (localPlayer != null && !Networking.IsOwner(card.gameObject))
+            {
+                Networking.SetOwner(localPlayer, card.gameObject);
+            }
+
+            // 元のスロット（手元スロットなど）からカードを解放（手元スロットが空き状態に復帰）
+            if (currentZone != null)
+            {
+                currentZone.ReleaseCard(card);
+                card.ClearZone();
+            }
+
+            // 中央プレイエリアへ配置要請（Tell: allowStack=true により自動スタック整列＆SnapToZone実行）
+            bool accepted = centerPlayZone.TrySnap(card);
+            if (accepted)
+            {
+                return true;
+            }
+            else
+            {
+                Debug.LogWarning($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアへのスナップが拒否されました: {card.gameObject.name}");
+                return false;
             }
         }
 
@@ -268,49 +328,17 @@ namespace BoardGameKit.Core
                 return;
             }
 
-            // すでに中央プレイエリアにある場合は二重プレイを防止
-            if (card.currentZone == centerPlayZone)
+            bool success = PlaySingleSelectedCard(card);
+            if (success)
             {
-                return;
-            }
-
-            // 選択状態にあれば安全に解除
-            if (card.cardId >= 0 && card.cardId < isCardSelected.Length)
-            {
-                isCardSelected[card.cardId] = false;
-            }
-
-            // 操作プレイヤーにカードの所有権を移行
-            VRCPlayerApi localPlayer = Networking.LocalPlayer;
-            if (localPlayer != null && !Networking.IsOwner(card.gameObject))
-            {
-                Networking.SetOwner(localPlayer, card.gameObject);
-            }
-
-            // 元のスロット（手元スロットなど）からカードを解放（手元スロットが空き状態に復帰）
-            if (card.currentZone != null)
-            {
-                card.currentZone.ReleaseCard(card);
-                card.currentZone = null;
-            }
-
-            // 中央プレイエリアへ配置要請（Tell: allowStack=true により自動スタック整列）
-            bool accepted = centerPlayZone.TrySnap(card);
-            if (accepted)
-            {
-                card.currentZone = centerPlayZone;
                 Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [TableManager] カードを中央プレイエリアへ即座に出しました: {card.gameObject.name} (StackCount: {centerPlayZone.GetStackedCount()})</color>");
-            }
-            else
-            {
-                Debug.LogWarning($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアへのスナップが拒否されました: {card.gameObject.name}");
             }
         }
 
-        #region MultiSelect 複数選択管理 (Step 3: T38)
+        #region MultiSelect 複数選択管理 (Step 3: T38 & Step 4: T39)
 
         /// <summary>
-        /// カードの選択状態を反転（トグル）し、浮上演出を切り替える (MultiSelectモード)
+        /// カードの選択状態を反転（トグル）し、選択順序キューを更新する (MultiSelectモード)
         /// </summary>
         /// <param name="card">選択/解除対象のカード</param>
         public void ToggleCardSelection(CardController card)
@@ -318,7 +346,8 @@ namespace BoardGameKit.Core
             if (card == null) return;
 
             // 中央プレイエリア（場）に出ているカードは手札選択の対象外として遮断
-            if (centerPlayZone != null && card.currentZone == centerPlayZone)
+            CardSnapZone zone = card.GetCurrentZone();
+            if (centerPlayZone != null && zone != null && zone.gameObject == centerPlayZone.gameObject)
             {
                 Debug.Log($"[VRC-BoardGameKit] [TableManager] 中央プレイエリアにあるカードは選択できません: {card.gameObject.name}");
                 return;
@@ -342,10 +371,142 @@ namespace BoardGameKit.Core
             bool nextSelected = !isCardSelected[id];
             isCardSelected[id] = nextSelected;
 
+            if (nextSelected)
+            {
+                // クリック順序（FIFOキュー）の末尾に追加
+                if (selectedCount < selectedOrder.Length)
+                {
+                    selectedOrder[selectedCount] = id;
+                    selectedCount++;
+                }
+            }
+            else
+            {
+                // 選択解除: キューから該当カードIDを検索し、後続要素を前方へ詰める
+                int foundIndex = -1;
+                for (int i = 0; i < selectedCount; i++)
+                {
+                    if (selectedOrder[i] == id)
+                    {
+                        foundIndex = i;
+                        break;
+                    }
+                }
+
+                if (foundIndex != -1)
+                {
+                    for (int i = foundIndex; i < selectedCount - 1; i++)
+                    {
+                        selectedOrder[i] = selectedOrder[i + 1];
+                    }
+                    selectedCount--;
+                }
+            }
+
             // カード自身へ視覚更新を命令 (Tell, Don't Ask)
             card.SetSelectedVisual(nextSelected);
 
-            Debug.Log($"<color=#00FFFF><b>[VRC-BoardGameKit]</b> [TableManager] カード選択状態を切り替えました: {card.gameObject.name} (ID: {id}, Selected: {nextSelected})</color>");
+            Debug.Log($"<color=#00FFFF><b>[VRC-BoardGameKit]</b> [TableManager] カード選択状態を切り替えました: {card.gameObject.name} (ID: {id}, Selected: {nextSelected}, 選択総数: {selectedCount})</color>");
+        }
+
+        /// <summary>
+        /// 選択中のカードをクリックした順番通りに中央プレイエリアへ一括でプレイする (MultiSelectモード)
+        /// </summary>
+        public void PlaySelectedCards()
+        {
+            PlaySelectedCards(null);
+        }
+
+        /// <summary>
+        /// 選択中のカードをクリックした順番通りに中央プレイエリアへ一括でプレイする (MultiSelectモード)
+        /// </summary>
+        /// <param name="handArea">操作プレイヤーの手札エリア（指定時は手札スロット内のカードか検証）</param>
+        public void PlaySelectedCards(PersonalHandArea handArea)
+        {
+            if (centerPlayZone == null)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] centerPlayZone が未設定のためプレイできません。");
+                return;
+            }
+
+            if (selectedCount == 0)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] プレイ対象として選択されたカードがありません。");
+                return;
+            }
+
+            if (deckManager == null || deckManager.cardPool == null)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] deckManager または cardPool が初期化されていません。");
+                return;
+            }
+
+            int playedCount = 0;
+
+            // クリックされた順番（selectedOrder: FIFOキュー）に従ってプレイ
+            for (int i = 0; i < selectedCount; i++)
+            {
+                int cardId = selectedOrder[i];
+                if (cardId < 0 || cardId >= deckManager.cardPool.Length) continue;
+
+                CardController card = deckManager.cardPool[cardId];
+                if (card == null) continue;
+
+                // handAreaが指定されている場合、手札スロット配列に属しているか安全に照合
+                if (handArea != null && handArea.snapZones != null)
+                {
+                    CardSnapZone cardZone = card.GetCurrentZone();
+                    bool belongsToHand = false;
+                    for (int s = 0; s < handArea.snapZones.Length; s++)
+                    {
+                        if (handArea.snapZones[s] != null && handArea.snapZones[s] == cardZone)
+                        {
+                            belongsToHand = true;
+                            break;
+                        }
+                    }
+
+                    if (!belongsToHand)
+                    {
+                        continue;
+                    }
+                }
+
+                if (PlaySingleSelectedCard(card))
+                {
+                    playedCount++;
+                }
+            }
+
+            // キューと選択状態を完全クリア
+            ClearAllSelections();
+
+            if (playedCount > 0)
+            {
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [TableManager] 選択中のカード {playedCount} 枚をクリック順通りに中央プレイエリアへ一括プレイしました。(StackCount: {centerPlayZone.GetStackedCount()})</color>");
+            }
+            else
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] プレイ対象として有効な選択中カードがありませんでした。");
+            }
+        }
+
+        /// <summary>
+        /// 座席インデックス指定で選択中カードを一括プレイする
+        /// </summary>
+        /// <param name="seatIndex">座席番号（0〜3）</param>
+        public void PlaySelectedCardsBySeat(int seatIndex)
+        {
+            PersonalHandArea targetArea = null;
+            if (seatControllers != null && seatIndex >= 0 && seatIndex < seatControllers.Length)
+            {
+                SeatController seat = seatControllers[seatIndex];
+                if (seat != null)
+                {
+                    targetArea = seat.GetLinkedHandArea();
+                }
+            }
+            PlaySelectedCards(targetArea);
         }
 
         /// <summary>
@@ -357,20 +518,21 @@ namespace BoardGameKit.Core
             {
                 isCardSelected[i] = false;
             }
+            selectedCount = 0;
 
             if (deckManager != null && deckManager.cardPool != null)
             {
                 for (int i = 0; i < deckManager.cardPool.Length; i++)
                 {
                     CardController card = deckManager.cardPool[i];
-                    if (card != null && card.isSelected)
+                    if (card != null && card.IsSelected())
                     {
                         card.SetSelectedVisual(false);
                     }
                 }
             }
 
-            Debug.Log("[VRC-BoardGameKit] [TableManager] 全カードの選択状態を解除しました。");
+            Debug.Log("[VRC-BoardGameKit] [TableManager] 全カードの選択状態および選択順序を解除しました。");
         }
 
         /// <summary>
@@ -390,15 +552,16 @@ namespace BoardGameKit.Core
         /// <returns>選択中のカード枚数</returns>
         public int GetSelectedCardCount()
         {
-            int count = 0;
-            for (int i = 0; i < isCardSelected.Length; i++)
-            {
-                if (isCardSelected[i])
-                {
-                    count++;
-                }
-            }
-            return count;
+            return selectedCount;
+        }
+
+        /// <summary>
+        /// 現在のクリック順序キューを取得する
+        /// </summary>
+        /// <returns>カードID配列</returns>
+        public int[] GetSelectedOrder()
+        {
+            return selectedOrder;
         }
 
         #endregion

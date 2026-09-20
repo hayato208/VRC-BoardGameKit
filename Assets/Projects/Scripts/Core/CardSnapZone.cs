@@ -18,11 +18,9 @@ namespace BoardGameKit.Core
         [Tooltip("スロットの名前または識別番号")]
         public string slotName = "SnapSlot_0";
 
-        [Tooltip("このスロットに現在カードが収まっているかどうか")]
-        [SerializeField] private bool isOccupied = false;
-
-        [Tooltip("現在このスロットに収まっているカード（スタック時は最新の最前面カード）")]
-        [SerializeField] private CardController currentCard = null;
+        // --- 実行時動的ステート（シリアライズ除外・カプセル化） ---
+        private bool isOccupied = false;
+        private CardController currentCard = null;
 
         [Header("Stack Settings")]
         [Tooltip("複数枚のカードを重ねて配置（スタック）することを許可するか（中央プレイエリア等）")]
@@ -106,7 +104,6 @@ namespace BoardGameKit.Core
             // スロット状態の更新
             isOccupied = true;
             currentCard = card;
-            card.currentZone = this;
 
             // ガイド枠のハイライト解除（枠自体は常時表示を維持し、エリア消失を防止）
             SetGuideHighlighted(false);
@@ -129,7 +126,7 @@ namespace BoardGameKit.Core
             // 【Tell】カード自身に目標位置・回転への移動・整列および所属記憶を命じる
             card.SnapToZone(this, targetPos, targetRot);
 
-            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードを受入・スナップ命令を発行しました: {slotName} (Card: {card.gameObject.name}, StackCount: {stackedCount})");
+            Debug.Log($"<color=#00FF88>[VRC-BoardGameKit] [CardSnapZone] カードを受入・占有しました: スロット=[{slotName}], 最前面=[{(currentCard != null ? currentCard.gameObject.name : "null")}], スタック総数={stackedCount}</color>");
             return true;
         }
 
@@ -189,13 +186,14 @@ namespace BoardGameKit.Core
                 }
             }
 
-            if (card.currentZone == this)
+            // カード側の所属スナップ枠を安全に解除（Tell）
+            if (card.GetCurrentZone() == this)
             {
-                card.currentZone = null;
+                card.ClearZone();
             }
 
             SetGuideHighlighted(false);
-            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] カードがスロットから解放されました: {slotName} (RemainingStack: {stackedCount})");
+            Debug.Log($"<color=#FFAA00>[VRC-BoardGameKit] [CardSnapZone] カードを解放しました: スロット=[{slotName}], 解放カード=[{card.gameObject.name}] -> 残り最前面=[{(currentCard != null ? currentCard.gameObject.name : "None")}], 残りスタック={stackedCount}</color>");
         }
 
         /// <summary>
@@ -216,6 +214,7 @@ namespace BoardGameKit.Core
                 guideRenderer.enabled = true;
             }
             SetGuideHighlighted(false);
+            Debug.Log($"[VRC-BoardGameKit] [CardSnapZone] スロットのスタックをクリアしました: スロット=[{slotName}]");
         }
 
         /// <summary>

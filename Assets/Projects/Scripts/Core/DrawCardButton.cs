@@ -22,12 +22,6 @@ namespace BoardGameKit.Core
         private void Start()
         {
             this.InteractionText = "カードを引く (Draw)";
-
-            // 参照が外れていた場合の親階層フォールバック (GetComponentInParent は Udon サポート済み)
-            if (linkedHandArea == null)
-            {
-                linkedHandArea = GetComponentInParent<PersonalHandArea>();
-            }
         }
 
         /// <summary>
@@ -38,21 +32,8 @@ namespace BoardGameKit.Core
             ExecuteDraw();
         }
 
-        /// <summary>
-        /// Unity UI (Button.onClick) / VRCUiShape レーザークリック用エントリーポイント
-        /// </summary>
-        public void OnButtonClick()
-        {
-            ExecuteDraw();
-        }
-
         private void ExecuteDraw()
         {
-            if (linkedHandArea == null)
-            {
-                linkedHandArea = GetComponentInParent<PersonalHandArea>();
-            }
-
             if (deckManager == null || linkedHandArea == null)
             {
                 Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] deckManager または linkedHandArea が設定されていません。");
@@ -64,9 +45,16 @@ namespace BoardGameKit.Core
 
             if (emptySlot != null)
             {
-                // 2. 山札から空きスロットへカードを引く
-                deckManager.DrawCardForZone(emptySlot);
-                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [DrawCardButton] 手元ボタンからドローを実行しました (対象スロット: {emptySlot.gameObject.name})</color>");
+                // 2. 山札から空きスロットへカードを引く (戻り値で成否を検証)
+                int drawnCardId = deckManager.DrawCardForZone(emptySlot);
+                if (drawnCardId != -1)
+                {
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [DrawCardButton] 手元ボタンからドロー成功: Card ID {drawnCardId} -> {emptySlot.gameObject.name}</color>");
+                }
+                else
+                {
+                    Debug.LogWarning($"[VRC-BoardGameKit] [DrawCardButton] ドロー拒否: スロット {emptySlot.gameObject.name} への配置に失敗しました（既に占有中または山札切れ）。");
+                }
             }
             else
             {
