@@ -37,9 +37,6 @@ namespace BoardGameKit.Core
         [Tooltip("座席コントローラー一覧（2〜8席）")]
         [SerializeField] private SeatController[] seatControllers;
 
-        [Tooltip("手札トレイコントローラー一覧")]
-        [SerializeField] private HandTrayController[] handTrayControllers;
-
         [Header("Rule Plugin (Optional)")]
         [Tooltip("オリジナルゲームルール拡張プラグイン（未設定時は汎用サンドボックスとして動作）")]
         [SerializeField] private RulePluginBase activeRulePlugin;
@@ -78,15 +75,7 @@ namespace BoardGameKit.Core
                     SeatController seat = seatControllers[s];
                     if (seat != null && seat.IsOccupied())
                     {
-                        int cardId = deckManager.DrawCard();
-                        if (cardId != -1 && s < handTrayControllers.Length)
-                        {
-                            HandTrayController tray = handTrayControllers[s];
-                            if (tray != null)
-                            {
-                                tray.AddCard(cardId);
-                            }
-                        }
+                        DrawCardForPlayer(s);
                     }
                 }
             }
@@ -100,68 +89,18 @@ namespace BoardGameKit.Core
         /// </summary>
         public void DrawCardForPlayer(int seatIndex)
         {
-            if (deckManager == null || seatIndex < 0 || seatIndex >= handTrayControllers.Length) return;
+            if (deckManager == null || seatControllers == null || seatIndex < 0 || seatIndex >= seatControllers.Length) return;
 
-            int cardId = deckManager.DrawCard();
-            if (cardId == -1) return;
+            SeatController seat = seatControllers[seatIndex];
+            if (seat == null) return;
 
-            HandTrayController tray = handTrayControllers[seatIndex];
-            if (tray != null)
+            PersonalHandArea handArea = seat.GetLinkedHandArea();
+            if (handArea == null) return;
+
+            CardSnapZone emptySlot = handArea.GetFirstEmptySlot();
+            if (emptySlot != null)
             {
-                int addedSlot = tray.AddCard(cardId);
-                if (addedSlot == -1)
-                {
-                    deckManager.DiscardCard(cardId);
-                }
-            }
-        }
-
-        /// <summary>
-        /// プレイヤーが手札からカードを場に出す（プレイ）
-        /// </summary>
-        public void PlayCard(int seatIndex, int slotIndex)
-        {
-            if (seatIndex < 0 || seatIndex >= handTrayControllers.Length) return;
-
-            HandTrayController tray = handTrayControllers[seatIndex];
-            if (tray == null) return;
-
-            int cardId = tray.GetCardIdAt(slotIndex);
-            if (cardId == -1) return;
-
-            int playerId = (seatIndex < seatControllers.Length && seatControllers[seatIndex] != null)
-                ? seatControllers[seatIndex].GetSeatedPlayerId()
-                : -1;
-
-            if (activeRulePlugin != null)
-            {
-                if (!activeRulePlugin.CanPlayCard(playerId, cardId, slotIndex))
-                {
-                    return;
-                }
-            }
-
-            tray.PlayCard(slotIndex);
-
-            if (deckManager != null)
-            {
-                deckManager.DiscardCard(cardId);
-            }
-
-            if (activeRulePlugin != null)
-            {
-                activeRulePlugin.OnCardPlayed(playerId, cardId, slotIndex);
-
-                int checkWinner = activeRulePlugin.CheckWinCondition();
-                if (checkWinner != -1)
-                {
-                    winnerPlayerId = checkWinner;
-                    gameState = 2;
-                    if (TakeOwnership())
-                    {
-                        RequestSerialization();
-                    }
-                }
+                deckManager.DrawCardForZone(emptySlot);
             }
         }
 
@@ -205,13 +144,18 @@ namespace BoardGameKit.Core
                 deckManager.ResetAndReshuffleDeck();
             }
 
-            if (handTrayControllers != null)
+            if (seatControllers != null)
             {
-                for (int i = 0; i < handTrayControllers.Length; i++)
+                for (int i = 0; i < seatControllers.Length; i++)
                 {
-                    if (handTrayControllers[i] != null)
+                    SeatController seat = seatControllers[i];
+                    if (seat != null)
                     {
-                        handTrayControllers[i].ClearHand();
+                        PersonalHandArea handArea = seat.GetLinkedHandArea();
+                        if (handArea != null)
+                        {
+                            handArea.ClearAllSlots();
+                        }
                     }
                 }
             }

@@ -98,6 +98,21 @@ namespace BoardGameKit.Core
             return (snapZones != null) ? snapZones.Length : slotCount;
         }
 
+        /// <summary>
+        /// 管理下の全手札スロットを空にする（ゲームリセット時など）
+        /// </summary>
+        public void ClearAllSlots()
+        {
+            if (snapZones == null) return;
+            for (int i = 0; i < snapZones.Length; i++)
+            {
+                if (snapZones[i] != null)
+                {
+                    snapZones[i].ClearStack();
+                }
+            }
+        }
+
         // --- 幾何計算用ゲッター（エディタ拡張連携） ---
         public float GetRadius() => radius;
         public float GetAngleStep() => angleStep;

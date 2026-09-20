@@ -1101,6 +1101,32 @@ Setting angular velocity of a kinematic body is not supported.
    * ボタンクラス側の不要な `OnButtonClick()` を削除し、ネイティブの `Interact()` のみに一本化。
    * これにより、uGUIのRaycasterやCanvasスケーリングの干渉を排除し、VRChatネイティブのインタラクション機構で100%確実・安定して動作するようになった。
 
+---
+
+## 55. レガシーコードの完全排除と手札管理アーキテクチャの統一 (T40, T41)
+
+### ① 使われていないコード（デッドコード）の判断基準の実践
+Unity/UdonSharp環境において、不要コードを安全かつ確実に特定・排除するための4つの判断基準を確立・適用した：
+1. **静的コード参照（C#レベル）**: `grep` によるプロジェクト全域検索で、他クラスから呼び出しが存在しないか。
+2. **シリアライズ参照（Unity/GUIDレベル）**: `.meta` の GUID がシーンやプレハブ（`m_Script`）に存在しないか。
+3. **動的生成（Builderレベル）**: エディタ自動生成ツール（`CardTableBuilder.cs`, `ArcadeFieldBuilderWindow`）の生成対象に含まれていないか。
+4. **論理的デッドコード（形骸化）**: コード上は変数や呼び出しが記述されていても、実行時には常に未バインド（`null` または空配列）であり、新機能と二重化して放置されている箇所を特定。
+
+### ② CardSlotController の完全削除 (T40)
+* 初期検証用の一時スクリプトであった `CardSlotController` は、T36により全責務が `CardController`（`Interact`, 姿勢復元）へ集約されたため完全なデッドコードとなっていた。
+* 配布パッケージ本体（`Assets/Projects/`）およびテスト環境（`test/Test Project/`）の双方からスクリプト、アセット、`.meta`、および `CardTableBuilder.cs` のアセット存在チェック配列から完全除去した。
+
+### ③ HandTrayController の撤廃と PersonalHandArea への手札統括一本化 (T41)
+* **背景**: 初期の板状木製トレイ（最大7枚の数値ID配列管理）用 `HandTrayController` への参照が `TableManager.cs` や `SeatController.cs` に残存し、円弧状物理スロット（`PersonalHandArea` ＆ `CardSnapZone`）との二重管理・認識ズレの原因となっていた。
+* **統括アーキテクチャの整流化**:
+  1. `SeatController` から `linkedHandTray` を完全除去し、`linkedHandArea`（`PersonalHandArea`）への一本化を完了。
+  2. `TableManager` の `DrawCardForPlayer(seatIndex)` を、座席に紐づく `PersonalHandArea.GetFirstEmptySlot()` を取得して `deckManager.DrawCardForZone(emptySlot)` を呼ぶ物理スロット連動へ刷新。
+  3. `TableManager.DealCardsToAll` も各座席の `DrawCardForPlayer` を呼ぶ構造へシンプルに統合。
+  4. `PersonalHandArea` に `ClearAllSlots()` を新設し、`TableManager.ResetGame()` で全プレイヤーの手札スロットを安全に一括解放する処理へ整流化。
+  5. 役目を終えた旧 `HandTrayController.cs` / `.asset` / `.meta` をプロジェクトから完全削除。
+* **コンパイル検証**: `test/Test Project` 内で `dotnet build` を実行し、ランタイム・エディタ双方で 0エラー を確認。
+
+
 
 
 

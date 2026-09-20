@@ -143,8 +143,6 @@ namespace BoardGameKit.Editor
                 "Assets/Projects/Scripts/Core/TableManager.cs",
                 "Assets/Projects/Scripts/Core/TableUIController.cs",
                 "Assets/Projects/Scripts/Core/SeatController.cs",
-                "Assets/Projects/Scripts/Core/HandTrayController.cs",
-                "Assets/Projects/Scripts/Core/CardSlotController.cs",
                 "Assets/Projects/Scripts/Core/DeckInteractHandler.cs",
                 "Assets/Projects/Scripts/Core/UIButtonHandler.cs",
                 "Assets/Projects/Scripts/Core/DebugClickButton.cs",

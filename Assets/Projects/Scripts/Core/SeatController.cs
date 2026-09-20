@@ -17,9 +17,6 @@ namespace BoardGameKit.Core
         [Tooltip("座席番号（0〜座席数-1）")]
         [SerializeField] private int seatIndex = 0;
 
-        [Tooltip("この座席に紐付く手札トレイ（旧仕様互換）")]
-        [SerializeField] private HandTrayController linkedHandTray;
-
         [Tooltip("この座席に紐付く円弧状手札エリア（新仕様）")]
         [SerializeField] private PersonalHandArea linkedHandArea;
 
@@ -156,11 +153,6 @@ namespace BoardGameKit.Core
             // 新しく着席した場合
             if (newPlayerId != -1)
             {
-                if (linkedHandTray != null && newPlayerId == localId)
-                {
-                    linkedHandTray.AssignOwner(newPlayerId);
-                }
-
                 if (tableManager != null)
                 {
                     tableManager.OnPlayerSeated(seatIndex, newPlayerId);
@@ -169,11 +161,6 @@ namespace BoardGameKit.Core
             // 離席した場合
             else if (oldPlayerId != -1)
             {
-                if (linkedHandTray != null && oldPlayerId == localId)
-                {
-                    linkedHandTray.ReleaseOwner();
-                }
-
                 if (tableManager != null)
                 {
                     tableManager.OnPlayerLeftSeat(seatIndex, oldPlayerId);
@@ -285,7 +272,6 @@ namespace BoardGameKit.Core
         public int GetSeatIndex() => seatIndex;
         public int GetSeatedPlayerId() => seatedPlayerId;
         public bool IsOccupied() => seatedPlayerId != -1;
-        public HandTrayController GetLinkedHandTray() => linkedHandTray;
         public PersonalHandArea GetLinkedHandArea() => linkedHandArea;
     }
 }
