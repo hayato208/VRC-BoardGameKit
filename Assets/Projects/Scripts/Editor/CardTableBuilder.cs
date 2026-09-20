@@ -1,6 +1,5 @@
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
 using VRC.SDKBase;
 using VRC.SDK3.Components;
@@ -370,9 +369,11 @@ namespace BoardGameKit.Editor
             CardSnapZone centerSnapZone = centerPlaySlot.GetComponent<CardSnapZone>();
             if (centerSnapZone != null)
             {
+                centerSnapZone.zoneType = CardZoneType.Field;
                 centerSnapZone.allowStack = true;
                 centerSnapZone.stackElevationOffset = 0.002f;
                 SerializedObject soZone = new SerializedObject(centerSnapZone);
+                soZone.FindProperty("zoneType").enumValueIndex = (int)CardZoneType.Field;
                 soZone.FindProperty("allowStack").boolValue = true;
                 soZone.FindProperty("stackElevationOffset").floatValue = 0.002f;
                 soZone.ApplyModifiedProperties();
@@ -867,7 +868,9 @@ namespace BoardGameKit.Editor
 
             // CardSnapZone コンポーネントのアタッチ
             CardSnapZone snapZone = slotObj.AddUdonSharpComponent<CardSnapZone>();
+            snapZone.zoneType = CardZoneType.Hand;
             SerializedObject soZone = new SerializedObject(snapZone);
+            soZone.FindProperty("zoneType").enumValueIndex = (int)CardZoneType.Hand;
             soZone.FindProperty("slotName").stringValue = name;
             soZone.FindProperty("guideRenderer").objectReferenceValue = guideQuad.GetComponent<MeshRenderer>();
             soZone.FindProperty("defaultGuideColor").colorValue = new Color(0.2f, 0.7f, 1.0f, 0.35f);

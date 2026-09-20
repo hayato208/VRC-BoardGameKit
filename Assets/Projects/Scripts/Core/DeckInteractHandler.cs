@@ -90,13 +90,7 @@ namespace BoardGameKit.Core
             // 着席している場合
             Debug.Log($"[VRC-BoardGameKit] [3D Interact] 山札をクリックしてドローを実行 (Seat: {mySeat})");
 
-            // 1. TableManager / HandTray によるドロー（旧仕様互換）
-            if (tableManager != null && (mySeatCtrl == null || mySeatCtrl.GetLinkedHandArea() == null))
-            {
-                tableManager.DrawCardForPlayer(mySeat);
-            }
-
-            // 2. PersonalHandArea（円弧スロット空間）へのプールカード自動配備
+            // PersonalHandArea（円弧スロット空間）へのプールカード自動配備
             if (mySeatCtrl != null && mySeatCtrl.GetLinkedHandArea() != null)
             {
                 PersonalHandArea handArea = mySeatCtrl.GetLinkedHandArea();

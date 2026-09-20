@@ -90,6 +90,22 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
+        /// 現在手札スロットに収まっているかを判定する（抽象モデル）
+        /// </summary>
+        public bool IsInHand()
+        {
+            return currentZone != null && currentZone.IsHandZone();
+        }
+
+        /// <summary>
+        /// 現在場のプレイエリアに収まっているかを判定する（抽象モデル）
+        /// </summary>
+        public bool IsOnField()
+        {
+            return currentZone != null && currentZone.IsFieldZone();
+        }
+
+        /// <summary>
         /// 所属スナップ枠の割り当てを解除する命令（Tell）
         /// </summary>
         public void ClearZone()

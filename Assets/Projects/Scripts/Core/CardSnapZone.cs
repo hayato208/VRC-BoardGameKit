@@ -6,6 +6,17 @@ using VRC.Udon;
 namespace BoardGameKit.Core
 {
     /// <summary>
+    /// スロットが属するゾーンの種別（抽象モデル）
+    /// </summary>
+    public enum CardZoneType
+    {
+        Hand = 0,       // プレイヤー手札スロット
+        Field = 1,      // 場のプレイエリア
+        Discard = 2,    // 捨て札・墓地
+        Deck = 3        // 山札
+    }
+
+    /// <summary>
     /// カードが吸着（スナップ）するスロット領域を定義するコンポーネント。
     /// 手札トレイのスロットや、テーブルの場のマス目にアタッチされる。
     /// Tell, Don't Ask原則に基づき、カードのTransformを外部から直接変更せず、
@@ -14,6 +25,10 @@ namespace BoardGameKit.Core
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class CardSnapZone : UdonSharpBehaviour
     {
+        [Header("Zone Identity")]
+        [Tooltip("このスナップ枠が属するゾーン種別（手札、場など）")]
+        public CardZoneType zoneType = CardZoneType.Hand;
+
         [Header("Slot Information")]
         [Tooltip("スロットの名前または識別番号")]
         public string slotName = "SnapSlot_0";
@@ -89,6 +104,11 @@ namespace BoardGameKit.Core
         {
             return stackedCards;
         }
+
+        // --- ゾーン種別判定ゲッター（抽象モデル） ---
+        public CardZoneType GetZoneType() => zoneType;
+        public bool IsHandZone() => zoneType == CardZoneType.Hand;
+        public bool IsFieldZone() => zoneType == CardZoneType.Field;
 
         /// <summary>
         /// カードからの配置要請を受け入れ、判定する命令（Tell）。

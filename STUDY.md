@@ -1126,6 +1126,27 @@ Unity/UdonSharp環境において、不要コードを安全かつ確実に特�
   5. 役目を終えた旧 `HandTrayController.cs` / `.asset` / `.meta` をプロジェクトから完全削除。
 * **コンパイル検証**: `test/Test Project` 内で `dotnet build` を実行し、ランタイム・エディタ双方で 0エラー を確認。
 
+---
+
+## 56. ゾーン種別（CardZoneType）抽象モデルの導入と一括プレイトランザクションの整流化 (T44)
+
+### ① 個別インスタンス比較から「ゾーン抽象モデル（CardZoneType）」への昇格
+*   **課題**: `TableManager.cs` の `OnCardClicked` や `ToggleCardSelection` では、`if (zone.gameObject == centerPlayZone.gameObject)` といった個別GameObjectとの直接比較（アドホックなガード節）がハードコードされていた。これは憲章 5.1「モデル抽象化と整流化の原則」に反し、捨て札・墓地や第2プレイエリア等のゾーン拡張時に破綻する構造的負債であった。
+*   **CardZoneType Enum によるモデル化**:
+    *   `CardSnapZone` に `CardZoneType`（`Hand`, `Field`, `Discard`, `Deck`）を導入。
+    *   `CardController` に `IsInHand()` および `IsOnField()` を新設。
+    *   カード操作判定を「**現在手札ゾーン（Hand）に収まっているカードのみクリック・選択可能**」という上位ルールへ一本化し、個別ハードコードガードを完全撤廃した。
+
+### ② MultiSelect一括プレイにおける場札巻き戻りバグの根本原因と解消
+*   **バグのメカニズム**:
+    1. 複数選択モードで場に出したカードをクリックした際、以前は `currentZone` の判定が特定インスタンス比較であったため、手札トグル処理へすり抜けて侵入。
+    2. `ToggleCardSelection` 内で `SetSelectedVisual(false)` が走り、カードが手札スロットの基準位置（`normalPosition`）へ巻き戻ってしまう現象が発生していた。
+*   **整流化トランザクション（不可分処理）**:
+    1. **二重防護**: `OnCardClicked` および `ToggleCardSelection` の入口で `card.IsInHand()` をチェックし、場（Field）のカードは100%確実に処理を遮断。
+    2. **スナップ先行フロー**: `PlaySingleSelectedCard` において、`centerPlayZone.TrySnap(card)` が成功したことを確認してから旧スロットを解放（`ReleaseCard`）する安全なトランザクション設計を採用。
+    3. **基準位置の即時確定**: `TrySnap` 内部で `card.SnapToZone` が実行され、カードの基準位置（`normalPosition`）・姿勢・所属ゾーン（`currentZone = centerPlayZone`）が場のワールド座標へ不可分に更新されるため、一切の位置不整合や巻き戻りが生じない。
+
+
 
 
 
