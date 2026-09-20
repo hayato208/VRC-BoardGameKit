@@ -524,6 +524,7 @@ namespace BoardGameKit.Editor
                 {
                     if (drawButtons[i] != null)
                     {
+                        drawButtons[i].deckManager = deckMgr;
                         SerializedObject soDrawBtn = new SerializedObject(drawButtons[i]);
                         soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
                         soDrawBtn.ApplyModifiedProperties();
@@ -577,6 +578,9 @@ namespace BoardGameKit.Editor
             drawCol.isTrigger = true;
 
             DrawCardButton drawUdon = drawBtnObj.AddUdonSharpComponent<DrawCardButton>();
+            drawUdon.linkedHandArea = handArea;
+            if (deckMgr != null) drawUdon.deckManager = deckMgr;
+
             UdonBehaviour udonDrawBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(drawUdon);
             if (udonDrawBacking != null)
             {
@@ -639,6 +643,10 @@ namespace BoardGameKit.Editor
             playCol.isTrigger = true;
 
             PlayCardButton playUdon = playBtnObj.AddUdonSharpComponent<PlayCardButton>();
+            playUdon.linkedHandArea = handArea;
+            playUdon.tableManager = tableManager;
+            playUdon.seatIndex = seatIndex;
+
             UdonBehaviour udonPlayBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(playUdon);
             if (udonPlayBacking != null)
             {

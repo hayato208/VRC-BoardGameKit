@@ -412,7 +412,15 @@ namespace BoardGameKit.Core
         /// <summary>
         /// 選択中のカードをクリックした順番通りに中央プレイエリアへ一括でプレイする (MultiSelectモード)
         /// </summary>
-        /// <param name="handArea">操作プレイヤーの手札エリア（指定時はそのエリア内のカードのみ対象）</param>
+        public void PlaySelectedCards()
+        {
+            PlaySelectedCards(null);
+        }
+
+        /// <summary>
+        /// 選択中のカードをクリックした順番通りに中央プレイエリアへ一括でプレイする (MultiSelectモード)
+        /// </summary>
+        /// <param name="handArea">操作プレイヤーの手札エリア（指定時は手札スロット内のカードか検証）</param>
         public void PlaySelectedCards(PersonalHandArea handArea)
         {
             if (centerPlayZone == null)
@@ -444,11 +452,21 @@ namespace BoardGameKit.Core
                 CardController card = deckManager.cardPool[cardId];
                 if (card == null) continue;
 
-                // handAreaが指定されている場合、その手札エリアに属しているカードか検証
-                if (handArea != null)
+                // handAreaが指定されている場合、手札スロット配列に属しているか安全に照合
+                if (handArea != null && handArea.snapZones != null)
                 {
-                    CardSnapZone zone = card.GetCurrentZone();
-                    if (zone == null || !zone.transform.IsChildOf(handArea.transform))
+                    CardSnapZone cardZone = card.GetCurrentZone();
+                    bool belongsToHand = false;
+                    for (int s = 0; s < handArea.snapZones.Length; s++)
+                    {
+                        if (handArea.snapZones[s] != null && handArea.snapZones[s] == cardZone)
+                        {
+                            belongsToHand = true;
+                            break;
+                        }
+                    }
+
+                    if (!belongsToHand)
                     {
                         continue;
                     }
@@ -469,7 +487,7 @@ namespace BoardGameKit.Core
             }
             else
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] 手札内に有効な選択中カードが見つかりませんでした。");
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] プレイ対象として有効な選択中カードがありませんでした。");
             }
         }
 

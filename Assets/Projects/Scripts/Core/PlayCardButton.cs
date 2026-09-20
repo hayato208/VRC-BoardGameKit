@@ -26,12 +26,6 @@ namespace BoardGameKit.Core
         private void Start()
         {
             this.InteractionText = "カードを出す (Play)";
-
-            // 参照が外れていた場合の親階層フォールバック
-            if (linkedHandArea == null)
-            {
-                linkedHandArea = GetComponentInParent<PersonalHandArea>();
-            }
         }
 
         /// <summary>
@@ -52,19 +46,14 @@ namespace BoardGameKit.Core
 
         private void ExecutePlay()
         {
-            if (linkedHandArea == null)
-            {
-                linkedHandArea = GetComponentInParent<PersonalHandArea>();
-            }
-
             if (tableManager == null)
             {
                 Debug.LogWarning("[VRC-BoardGameKit] [PlayCardButton] tableManager が設定されていません。");
                 return;
             }
 
-            // 手札エリアを明示して一括プレイを要求
-            tableManager.PlaySelectedCards(linkedHandArea);
+            // 選択中のカードを一括プレイ
+            tableManager.PlaySelectedCards();
         }
     }
 }

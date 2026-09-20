@@ -1047,6 +1047,38 @@ Setting angular velocity of a kinematic body is not supported.
   速度が存在しないオブジェクトに対し、ガード（`if (!rb.isKinematic)`）を設けてまで速度ゼロ代入を残す必要性自体がゼロである。
   `SnapTo`、`SetSelectedVisual`、`ResetToDeck` から **速度代入および不要な `rb` 操作ブロックそのものを完全に削除（断捨離）** することで、コードの可読性を大幅に向上させ、PhysXの警告を根本的に根絶した。
 
+---
+
+## 43. 手元UIの直接バインドと過剰堅牢化（階層探索・動的フォールバック）の排除 (YAGNI)
+
+### ① 発生していた現象と症状
+1. **2枚目以降が引けない（手元ドローボタン）**:
+   * 山札オブジェクトを直接クリックした場合は何枚でも正常に手札に引ける。
+   * しかし手元の「DRAW CARD」ボタンを押すと、2枚目以降が引けず、ログ上常に `Slot 0` を指定し続けて失敗する。
+2. **PLAYボタンで選択解除される（手元プレイボタン）**:
+   * 手札カードをクリックして浮上（選択）させた後、手元の「PLAY」ボタンを押すと、中央の場に出ず即座に手札スロットへ元の位置に戻る（選択解除される）。
+
+### ② 根本原因の構造
+* **原因1: `CopyProxyToUdon` におけるC#プロキシフィールド未代入トラップ**:
+  * `CardTableBuilder` において、`DrawCardButton` / `PlayCardButton` を生成した際、`drawUdon.linkedHandArea` や `playUdon.linkedHandArea` のC#プロキシ側変数に代入せず、SerializedObject側のプロパティのみを操作していた。
+  * そのため、直後の `UdonSharpEditorUtility.CopyProxyToUdon(drawUdon)` 呼び出しによってプロキシ側の初期値（`null`）で上書きされ、Udon実体の参照が消去（`null` 化）されていた。
+* **原因2: 過剰防護（動的フォールバック探索）による誤参照と迷走**:
+  * `linkedHandArea == null` になったため、保険として書かれていた `GetComponentInParent<HandAreaController>()` が発動。
+  * スロットコンテナの非アクティブ状態や階層の違いにより親を正しく取得できず、山札がカードを入れた手札エリアと手元ボタンが参照する手札エリアのインスタンス不整合（別オブジェクト参照）が発生。ボタン側はスロット0が空いていると誤認し続けた。
+* **原因3: `Transform.IsChildOf` による過剰な親子階層チェック**:
+  * `TableManager.PlaySelectedCards` 内で、選択カードが手札由来か判定するために `!zone.transform.IsChildOf(handArea.transform)` の先祖階層探索を行っていた。
+  * これが親階層の違いにより `false` と判定され、場に出す処理が丸ごとスキップされた直後に `ClearAllSelections()` が実行されたため、「選択解除されて元の位置に戻る」挙動となっていた。
+
+### ③ 解決策とYAGNI原則の実践
+* **過剰な自己修復・階層探索の完全根絶**:
+  * `GetComponentInParent` による動的フォールバックを全廃。ビルダーによる明示的なバインド（SSOT）を唯一の前提とする。
+  * `Transform.IsChildOf` の先祖探索を全廃。手札エリア自身の持つ `handArea.snapZones` 配列直接照合へ簡素化し、さらに引数なしの `PlaySelectedCards()` では現在選択中のカードを無条件で場に出す極めてシンプルな構造にした。
+* **戻り値の正確な検証**:
+  * `DeckManager.DrawCardForZone` は失敗時に `-1` を返す設計であるため、戻り値を無視して「ドロー成功」とログを出すのではなく、`-1` 時には失敗警告を出すようにした。
+* **プロキシ直接代入の徹底**:
+  * `CardTableBuilder` 内で `drawUdon.linkedHandArea = handArea;`、`playUdon.linkedHandArea = handArea;` とC#プロキシに直接代入してから `CopyProxyToUdon` を呼ぶことで、シリアライズ参照消去を根本防止した。
+
+
 
 
 
