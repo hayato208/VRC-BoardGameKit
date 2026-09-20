@@ -1038,21 +1038,14 @@ Setting angular velocity of a kinematic body is not supported.
 * Unity 2022（PhysX 4.x）の物理エンジンでは、`rb.isKinematic == true`（物理シミュレーションを無効化し、Transformで姿勢制御するモード）になっているオブジェクトに対して、`rb.velocity` や `rb.angularVelocity` を代入することはサポートされていない。
 * 物理演算の対象外であるため外力や速度自体が無効であり、速度をリセット（ゼロクリア）しようとする代入文を実行するだけで、PhysXエンジンが警告（Warning）を出力する。
 
-### ③ 最小限のシンプルな回避手法（YAGNI原則準拠）
-* 共通ヘルパーメソッドの新設などの過剰な抽象化を避け、ピンポイントで **`if (!rb.isKinematic)` ガード** を設ける。
-  ```csharp
-  if (rb != null)
-  {
-      // 物理シミュレーション中（非Kinematic）だった場合のみ速度をリセット
-      if (!rb.isKinematic)
-      {
-          rb.velocity = Vector3.zero;
-          rb.angularVelocity = Vector3.zero;
-          rb.isKinematic = true;
-      }
-  }
-  ```
-* すでに `isKinematic == true` の場合は速度代入そのものがスキップされるため、余計な関数を増やすことなく警告を100%完全に根絶できる。
+### ③ 最善の解決策：ガードではなく「不要コード自体の完全削除」（YAGNI / Clean Code）
+* **初期プロトタイプ時代の名残（技術的負債）**:
+  以前は物理手持ち（`VRCPickup`）で振り回す仕様だったため、手放した瞬間の慣性を殺すために `rb.velocity = Vector3.zero;` が必要だった。
+* **常時Kinematic仕様への移行**:
+  現在のカードは `pickupable = false` かつ `Start` 時から常時 `rb.isKinematic = true` であり、すべての移動・浮上演出がTransform直接制御で行われている。
+* **結論**:
+  速度が存在しないオブジェクトに対し、ガード（`if (!rb.isKinematic)`）を設けてまで速度ゼロ代入を残す必要性自体がゼロである。
+  `SnapTo`、`SetSelectedVisual`、`ResetToDeck` から **速度代入および不要な `rb` 操作ブロックそのものを完全に削除（断捨離）** することで、コードの可読性を大幅に向上させ、PhysXの警告を根本的に根絶した。
 
 
 

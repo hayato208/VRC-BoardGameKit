@@ -131,16 +131,6 @@ namespace BoardGameKit.Core
             transform.position = targetPosition;
             transform.rotation = targetRotation;
 
-            if (rb != null)
-            {
-                if (!rb.isKinematic)
-                {
-                    rb.velocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
-                    rb.isKinematic = true;
-                }
-            }
-
             gameObject.SetActive(true);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カード自身が指定位置へ吸着整列しました: {gameObject.name}");
         }
@@ -172,16 +162,6 @@ namespace BoardGameKit.Core
                 transform.rotation = normalRotation;
             }
 
-            if (rb != null)
-            {
-                if (!rb.isKinematic)
-                {
-                    rb.velocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
-                    rb.isKinematic = true;
-                }
-            }
-
             Debug.Log($"[VRC-BoardGameKit] [CardController] 選択視覚状態を更新しました: {gameObject.name} (Selected: {isSelected})");
         }
 
@@ -193,12 +173,7 @@ namespace BoardGameKit.Core
         {
             if (rb != null)
             {
-                if (!rb.isKinematic)
-                {
-                    rb.velocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
-                    rb.isKinematic = true;
-                }
+                rb.isKinematic = true;
             }
 
             Debug.Log($"[VRC-BoardGameKit] [CardController] カードが空中でピタッと完全静止しました: {gameObject.name}");
@@ -223,16 +198,6 @@ namespace BoardGameKit.Core
 
             transform.position = deckPos;
             transform.rotation = deckRot;
-
-            if (rb != null)
-            {
-                if (!rb.isKinematic)
-                {
-                    rb.velocity = Vector3.zero;
-                    rb.angularVelocity = Vector3.zero;
-                    rb.isKinematic = true;
-                }
-            }
 
             gameObject.SetActive(false);
             Debug.Log($"[VRC-BoardGameKit] [CardController] カードを山札へ回収・初期化しました: {gameObject.name} (ID: {cardId})");
