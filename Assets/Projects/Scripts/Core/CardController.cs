@@ -133,9 +133,12 @@ namespace BoardGameKit.Core
 
             if (rb != null)
             {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
+                if (!rb.isKinematic)
+                {
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.isKinematic = true;
+                }
             }
 
             gameObject.SetActive(true);
@@ -171,9 +174,12 @@ namespace BoardGameKit.Core
 
             if (rb != null)
             {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
+                if (!rb.isKinematic)
+                {
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.isKinematic = true;
+                }
             }
 
             Debug.Log($"[VRC-BoardGameKit] [CardController] 選択視覚状態を更新しました: {gameObject.name} (Selected: {isSelected})");
@@ -187,9 +193,12 @@ namespace BoardGameKit.Core
         {
             if (rb != null)
             {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
+                if (!rb.isKinematic)
+                {
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.isKinematic = true;
+                }
             }
 
             Debug.Log($"[VRC-BoardGameKit] [CardController] カードが空中でピタッと完全静止しました: {gameObject.name}");
@@ -217,9 +226,12 @@ namespace BoardGameKit.Core
 
             if (rb != null)
             {
-                rb.velocity = Vector3.zero;
-                rb.angularVelocity = Vector3.zero;
-                rb.isKinematic = true;
+                if (!rb.isKinematic)
+                {
+                    rb.velocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                    rb.isKinematic = true;
+                }
             }
 
             gameObject.SetActive(false);

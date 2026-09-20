@@ -1024,6 +1024,37 @@ Tools / VRC-BoardGameKit /
 *   そのため、カード受入時（`TrySnap`）や解放時（`ReleaseCard`）、スタッククリア時（`ClearStack`）などの **状態遷移が発生する瞬間に、色付きのわかりやすい `Debug.Log` を出力** させる。
 *   これにより、シリアライザの巻き戻し事故を恒久遮断しつつ、Unity Console や ClientSim、VRChat実行ログ上で「どのスロットがどのカードを保持・解放したか」をリアルタイムに100%追跡可能になる。
 
+---
+
+## 42. Unity PhysXにおけるKinematic Rigidbodyの速度代入警告と回避手法
+
+### ① 発生する警告メッセージ
+```text
+Setting linear velocity of a kinematic body is not supported.
+Setting angular velocity of a kinematic body is not supported.
+```
+
+### ② 発生メカニズム
+* Unity 2022（PhysX 4.x）の物理エンジンでは、`rb.isKinematic == true`（物理シミュレーションを無効化し、Transformで姿勢制御するモード）になっているオブジェクトに対して、`rb.velocity` や `rb.angularVelocity` を代入することはサポートされていない。
+* 物理演算の対象外であるため外力や速度自体が無効であり、速度をリセット（ゼロクリア）しようとする代入文を実行するだけで、PhysXエンジンが警告（Warning）を出力する。
+
+### ③ 最小限のシンプルな回避手法（YAGNI原則準拠）
+* 共通ヘルパーメソッドの新設などの過剰な抽象化を避け、ピンポイントで **`if (!rb.isKinematic)` ガード** を設ける。
+  ```csharp
+  if (rb != null)
+  {
+      // 物理シミュレーション中（非Kinematic）だった場合のみ速度をリセット
+      if (!rb.isKinematic)
+      {
+          rb.velocity = Vector3.zero;
+          rb.angularVelocity = Vector3.zero;
+          rb.isKinematic = true;
+      }
+  }
+  ```
+* すでに `isKinematic == true` の場合は速度代入そのものがスキップされるため、余計な関数を増やすことなく警告を100%完全に根絶できる。
+
+
 
 
 
