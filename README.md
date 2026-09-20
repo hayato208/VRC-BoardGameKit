@@ -37,7 +37,7 @@
    - カード自身の姿勢自己制御（`SnapTo`, `FreezeInAir`）
    - 最短距離＆重なり判定（Best Fit Snap: 大判カードでも隣接枠への誤吸着ゼロ）
 7. **ポータブル4大AIエージェント体制 (`agents/`)**
-   - Architect, Coder, UdonInspector, Refactorer による2段階パイプライン開発
+   - Architect, Coder, Refactorer, UdonInspector による専門分業パイプライン開発（Red ➔ Green ➔ Refactor ➔ Audit）
 
 ---
 
