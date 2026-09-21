@@ -1,3 +1,4 @@
+using TMPro;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
@@ -19,12 +20,46 @@ namespace BoardGameKit.Core
         [Tooltip("紐付くプレイヤーの手札エリア")]
         [SerializeField] private PersonalHandArea linkedHandArea;
 
+        [Tooltip("ボタン表面のラベル表示用TextMeshPro")]
+        [SerializeField] private TextMeshPro buttonText;
+
         public void SetDeckManager(DeckManager dm) => deckManager = dm;
         public void SetLinkedHandArea(PersonalHandArea area) => linkedHandArea = area;
+        public void SetButtonText(TextMeshPro text) => buttonText = text;
 
         private void Start()
         {
-            this.InteractionText = "カードを引く (Draw)";
+            if (deckManager != null)
+            {
+                UpdateRemainingCount(deckManager.GetRemainingCount());
+            }
+            else
+            {
+                this.InteractionText = "カードを引く (Draw)";
+            }
+        }
+
+        /// <summary>
+        /// 山札の残数に応じてボタン表面ラベルおよびホバーツールチップを動的に更新する (案A)
+        /// </summary>
+        public void UpdateRemainingCount(int remainingCount)
+        {
+            if (remainingCount > 0)
+            {
+                this.InteractionText = $"カードを引く (残り: {remainingCount}枚)";
+                if (buttonText != null)
+                {
+                    buttonText.text = $"カードを引く\n<size=70%>(残り: {remainingCount}枚)</size>";
+                }
+            }
+            else
+            {
+                this.InteractionText = "山札なし (0枚)";
+                if (buttonText != null)
+                {
+                    buttonText.text = "山札切れ\n<size=70%>(0枚)</size>";
+                }
+            }
         }
 
         /// <summary>

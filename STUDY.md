@@ -1196,6 +1196,24 @@ AIが自律的に開発を進める中で、プロンプトの指示を過剰に
     *   もし要求仕様や追加要件にオーバーエンジニアリングや過剰堅牢化の兆候を検知した場合、AIは独断で複雑なコードを書かず、Plan内の「User Review Required」に懸念点と最シンプル代替案を提示してユーザーに相談する。
     *   これにより、不要な複雑性の混入を設計段階（コードを1行も書く前）で確実に遮断する。
 
+---
+
+## 46. 手元UIドローボタン残数表示同期とC#プロキシバインド抜けの根本対策 (T43)
+
+### ① C#プロキシ代入抜けによるシリアライズ消失トラップ
+*   **事象**: 手元ドローボタンからカードを引いた際、山札内部の残数は正しく減算されていたが、山札オブジェクト（`DeckInteractHandler`）のホバーツールチップテキスト（`UpdateInteractionText`）への更新通知が実行されず、表示が古いままになっていた。
+*   **原因**: `CardTableBuilder.cs` において、`soDeck.FindProperty("interactHandler").objectReferenceValue = deckHandler;` とシリアライズ値のみを更新し、直後に `UdonSharpEditorUtility.CopyProxyToUdon(deckManager)` を呼び出していた。
+    *   `CopyProxyToUdon` は **「C#プロキシ側のフィールド値をUdonBehaviourにコピーする」** 仕様であるため、C#プロキシ側の `interactHandler`（初期値 `null` のまま）がシリアライズ値に上書きされ、エディタ上で参照が消失していた（`STUDY.md` セクション41と同様の罠）。
+*   **対策**: `deckManager.SetInteractHandler(deckHandler);` および `deckManager.SetCardPool(poolCards);` を明示的に呼び出し、**「プロキシ変数への代入 ➔ SerializedObjectへの代入 ➔ CopyProxyToUdon」** の3段パイプラインを徹底した。
+
+### ② 単一真実源（SSOT）に基づく山札残数通知の一元化（案A）
+*   **設計思想**:
+    *   山札の残数状態は `DeckManager`（`deckTopIndex`）が唯一の真実源（SSOT）である。
+    *   ドロー操作（手元ボタン・山札直接）、リセット操作、他プレイヤーからの同期受信（`OnDeserialization`）のいずれの契機でも、`DeckManager.UpdateVisuals()` が残数を通知する。
+*   **手元ドローボタン（`DrawCardButton`）への表示統合（案A）**:
+    *   手元ボタン表面の3D TextMeshProおよび視線ホバー時の `InteractionText` に、山札と同じ残数表示ルール（`カードを引く (残り: X枚)` / `山札なし (0枚)`）を動的反映。
+    *   操作ボタンそのものに残数を埋め込むことで、パネルの物理レイアウト（横並び2ボタン）を変更せず、最もシンプル（KISS原則）にプレイヤーへ直感的な残数フィードバックを提供する。
+
 
 
 
