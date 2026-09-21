@@ -191,13 +191,16 @@ namespace BoardGameKit.Core
             if (card == null) return;
             Debug.Log($"[VRC-BoardGameKit] [TableManager] カードがクリックされました: {card.gameObject.name} (ID: {card.cardId}, PlayMode: {playMode})");
 
-            // ゾーン抽象化モデル: 手札ゾーン（Hand）に属していないカード（場札、山札、捨て札等）はクリック操作対象外
-            if (!card.IsInHand())
+            CardSnapZone zone = card.GetCurrentZone();
+
+            // 共通の場（centerPlayZone）にあるカードは操作不可のため即座にreturn
+            if (centerPlayZone != null && zone != null && (zone == centerPlayZone || zone.gameObject == centerPlayZone.gameObject))
             {
-                Debug.Log($"[VRC-BoardGameKit] [TableManager] 手札ゾーン外のカードは操作対象外のため無視します: {card.gameObject.name} (Zone: {(card.GetCurrentZone() != null ? card.GetCurrentZone().slotName : "None")})");
+                Debug.Log($"<color=#FFAA00>[VRC-BoardGameKit] [TableManager] 中央プレイエリア（場）にあるカードは操作できません: {card.gameObject.name}</color>");
                 return;
             }
 
+            // 手札スロットにあるカードなら各モードに応じた手札挙動を実行
             if (playMode == CardPlayMode.Immediate)
             {
                 PlayCardImmediate(card);
@@ -217,8 +220,14 @@ namespace BoardGameKit.Core
         {
             if (card == null || centerPlayZone == null) return false;
 
-            // すでに場に出ているカードはスキップ
-            if (card.IsOnField()) return false;
+            // 元のスロット（手元スロットなど）を記憶
+            CardSnapZone currentZone = card.GetCurrentZone();
+
+            // すでに中央の場に出ているカードは二重プレイ防止のためスキップ
+            if (currentZone != null && (currentZone == centerPlayZone || currentZone.gameObject == centerPlayZone.gameObject))
+            {
+                return false;
+            }
 
             // 選択追跡フラグを解除
             if (card.cardId >= 0 && card.cardId < isCardSelected.Length)
@@ -232,9 +241,6 @@ namespace BoardGameKit.Core
             {
                 Networking.SetOwner(localPlayer, card.gameObject);
             }
-
-            // 元のスロット（手元スロットなど）を記憶
-            CardSnapZone currentZone = card.GetCurrentZone();
 
             // 中央プレイエリアへ配置要請（Tell: allowStack=true により自動スタック整列＆SnapToZone実行）
             // ※TrySnap内で card.SnapToZone() が走り、カードの基準位置・回転・所属ゾーンが場の座標に確定更新される
@@ -285,10 +291,12 @@ namespace BoardGameKit.Core
         {
             if (card == null) return;
 
-            // ゾーン抽象化モデル: 手札ゾーン（Hand）に属していないカードは選択不可
-            if (!card.IsInHand())
+            CardSnapZone zone = card.GetCurrentZone();
+
+            // 共通の場（centerPlayZone）にあるカードは選択不可のため即座にreturn
+            if (centerPlayZone != null && zone != null && (zone == centerPlayZone || zone.gameObject == centerPlayZone.gameObject))
             {
-                Debug.Log($"[VRC-BoardGameKit] [TableManager] 手札ゾーン外のカードは選択できません: {card.gameObject.name}");
+                Debug.Log($"<color=#FFAA00>[VRC-BoardGameKit] [TableManager] 中央プレイエリア（場）にあるカードは選択できません: {card.gameObject.name}</color>");
                 return;
             }
 
