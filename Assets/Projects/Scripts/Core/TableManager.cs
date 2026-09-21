@@ -101,12 +101,9 @@ namespace BoardGameKit.Core
             if (seat == null) return;
 
             PersonalHandArea handArea = seat.GetLinkedHandArea();
-            if (handArea == null) return;
-
-            CardSnapZone emptySlot = handArea.GetFirstEmptySlot();
-            if (emptySlot != null)
+            if (handArea != null)
             {
-                deckManager.DrawCardForZone(emptySlot);
+                handArea.TryDrawCard(deckManager);
             }
         }
 

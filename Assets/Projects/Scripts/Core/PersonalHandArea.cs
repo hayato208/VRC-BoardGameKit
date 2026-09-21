@@ -85,6 +85,44 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
+        /// 山札から手札の空きスロットへカードを1枚補充する（ドロー処理の一元管理・SSOT）
+        /// </summary>
+        /// <param name="deckManager">山札マネージャー</param>
+        /// <returns>配備したカードID（山札切れや満杯の場合は -1）</returns>
+        public int TryDrawCard(DeckManager deckManager)
+        {
+            if (deckManager == null) return -1;
+
+            // 1. 山札切れの事前ガード
+            if (deckManager.IsDeckEmpty())
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [Draw] 山札が切れています（残り0枚）。カードを引くことはできません。");
+                return -1;
+            }
+
+            // 2. 空きスロットの探索
+            CardSnapZone emptySlot = GetFirstEmptySlot();
+            if (emptySlot == null)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [Draw] 手札スロットが満杯のためドローできません。");
+                return -1;
+            }
+
+            // 3. ドロー実行と成否検証
+            int drawnCardId = deckManager.DrawCardForZone(emptySlot);
+            if (drawnCardId != -1)
+            {
+                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [Draw] ドロー成功: Card ID {drawnCardId} -> {emptySlot.gameObject.name}</color>");
+            }
+            else
+            {
+                Debug.LogWarning($"[VRC-BoardGameKit] [Draw] ドロー拒否: スロット {emptySlot.gameObject.name} への配置に失敗しました（既に占有中または山札切れ）。");
+            }
+
+            return drawnCardId;
+        }
+
+        /// <summary>
         /// 現在有効なスロット数を取得
         /// </summary>
         public int GetActiveSlotCount()

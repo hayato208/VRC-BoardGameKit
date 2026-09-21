@@ -515,14 +515,22 @@ namespace BoardGameKit.Editor
                 soTable.ApplyModifiedProperties();
                 UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
 
-                // 各座席の DrawCardButton に deckMgr をバインド
+                // 各座席の DrawCardButton に deckMgr および linkedSeat をバインド
                 for (int i = 0; i < 4; i++)
                 {
                     if (drawButtons[i] != null)
                     {
                         drawButtons[i].SetDeckManager(deckMgr);
+                        if (seatControllers != null && i < seatControllers.Length)
+                        {
+                            drawButtons[i].SetLinkedSeat(seatControllers[i]);
+                        }
                         SerializedObject soDrawBtn = new SerializedObject(drawButtons[i]);
                         soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+                        if (seatControllers != null && i < seatControllers.Length)
+                        {
+                            soDrawBtn.FindProperty("linkedSeat").objectReferenceValue = seatControllers[i];
+                        }
                         soDrawBtn.ApplyModifiedProperties();
                         UdonSharpEditorUtility.CopyProxyToUdon(drawButtons[i]);
 

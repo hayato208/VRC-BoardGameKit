@@ -20,11 +20,15 @@ namespace BoardGameKit.Core
         [Tooltip("紐付くプレイヤーの手札エリア")]
         [SerializeField] private PersonalHandArea linkedHandArea;
 
+        [Tooltip("紐付く座席コントローラー（着席判定用）")]
+        [SerializeField] private SeatController linkedSeat;
+
         [Tooltip("ボタン表面のラベル表示用TextMeshPro")]
         [SerializeField] private TextMeshPro buttonText;
 
         public void SetDeckManager(DeckManager dm) => deckManager = dm;
         public void SetLinkedHandArea(PersonalHandArea area) => linkedHandArea = area;
+        public void SetLinkedSeat(SeatController seat) => linkedSeat = seat;
         public void SetButtonText(TextMeshPro text) => buttonText = text;
 
         private void Start()
@@ -72,32 +76,24 @@ namespace BoardGameKit.Core
 
         private void ExecuteDraw()
         {
-            if (deckManager == null || linkedHandArea == null)
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            if (localPlayer == null) return;
+
+            // 1. 着席判定（未着席または他人の座席のボタン操作を遮断）
+            if (linkedSeat == null || linkedSeat.GetSeatedPlayerId() != localPlayer.playerId)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] deckManager または linkedHandArea が設定されていません。");
+                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] この座席に参加（着席）していないためドローできません。座席右脇のキューブをクリックして参加してください。");
                 return;
             }
 
-            // 1. 手札エリアから最も若い空きスロットを取得
-            CardSnapZone emptySlot = linkedHandArea.GetFirstEmptySlot();
+            if (linkedHandArea == null || deckManager == null)
+            {
+                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] linkedHandArea または deckManager が未設定です。");
+                return;
+            }
 
-            if (emptySlot != null)
-            {
-                // 2. 山札から空きスロットへカードを引く (戻り値で成否を検証)
-                int drawnCardId = deckManager.DrawCardForZone(emptySlot);
-                if (drawnCardId != -1)
-                {
-                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [DrawCardButton] 手元ボタンからドロー成功: Card ID {drawnCardId} -> {emptySlot.gameObject.name}</color>");
-                }
-                else
-                {
-                    Debug.LogWarning($"[VRC-BoardGameKit] [DrawCardButton] ドロー拒否: スロット {emptySlot.gameObject.name} への配置に失敗しました（既に占有中または山札切れ）。");
-                }
-            }
-            else
-            {
-                Debug.LogWarning("[VRC-BoardGameKit] [DrawCardButton] 手札スロットが満杯のためドローできません。");
-            }
+            // 2. 手札エリアへドロー処理を一括委譲 (Tell, Don't Ask & SSOT)
+            linkedHandArea.TryDrawCard(deckManager);
         }
     }
 }

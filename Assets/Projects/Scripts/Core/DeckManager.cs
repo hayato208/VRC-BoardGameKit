@@ -271,8 +271,8 @@ namespace BoardGameKit.Core
         {
             if (deckMeshTransform != null)
             {
-                // 山札が0枚のときはメッシュを非表示、残数があれば表示（縦横比は維持）
-                deckMeshTransform.gameObject.SetActive(deckTopIndex > 0 || !isInitialized);
+                // 山札が0枚になってもオブジェクトを非表示にせず常時表示を維持
+                deckMeshTransform.gameObject.SetActive(true);
             }
 
             int count = isInitialized ? deckTopIndex : defaultCardCount;

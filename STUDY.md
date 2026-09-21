@@ -1214,6 +1214,27 @@ AIが自律的に開発を進める中で、プロンプトの指示を過剰に
     *   手元ボタン表面の3D TextMeshProおよび視線ホバー時の `InteractionText` に、山札と同じ残数表示ルール（`カードを引く (残り: X枚)` / `山札なし (0枚)`）を動的反映。
     *   操作ボタンそのものに残数を埋め込むことで、パネルの物理レイアウト（横並び2ボタン）を変更せず、最もシンプル（KISS原則）にプレイヤーへ直感的な残数フィードバックを提供する。
 
+---
+
+## 47. 未着席ドローの完全遮断とドロー処理一元化リファクタリング (DRY/SSOT)
+
+### ① 未着席時ドローの発生原因と遮断策
+*   **事象**: 参加登録（着席）を行っていない未参加プレイヤーが、山札や他人の手元ドローボタンをクリックしてカードを引けてしまう不整合が発生していた。
+*   **原因**:
+    1. `DeckInteractHandler.cs` において、初期プロトタイプ時代のサンドボックス用単体ドロー分岐（`if (mySeat == -1) deckManager.DrawCard();`）が残存していた。
+    2. `DrawCardButton.cs` において、ボタンを押したプレイヤーがその席に着席しているか（`linkedSeat.GetSeatedPlayerId() == localPlayer.playerId`）の検証が欠落していた。
+*   **対策**:
+    1. 山札クリック時は `mySeat == -1` の単体ドローを完全撤廃し、警告ログを出力して即座に遮断。
+    2. 手元ボタンに `linkedSeat`（座席コントローラー）をバインドし、ローカルプレイヤーがその座席に着席している場合のみドローを許可する排他制御を導入。
+
+### ② 二重記述の解消と `PersonalHandArea.TryDrawCard` への集約（DRY原則）
+*   **課題の反省**: 手元ボタンと山札ハンドラーの両方で「空き枠探索 ➔ `DrawCardForZone` ➔ 成否判定・ログ出力」というほぼ同一のコードを別々に記述（重複）してしまっていた。
+*   **解決（単一真実源化）**:
+    *   ドローの実処理を `PersonalHandArea.TryDrawCard(DeckManager deckManager)` に集約。
+    *   山札切れ判定（`IsDeckEmpty`）、空きスロット探索（`GetFirstEmptySlot`）、配備、統一ログ出力（`[Draw] ドロー成功: ...`）をすべて同メソッド内に一本化。
+    *   `DrawCardButton`、`DeckInteractHandler`、`TableManager.DrawCardForPlayer` の3箇所すべてから `handArea.TryDrawCard(deckManager)` を呼ぶ構造へスリム化し、二重記述を100%根絶した。
+
+
 
 
 
