@@ -515,18 +515,41 @@ namespace BoardGameKit.Editor
                 soTable.ApplyModifiedProperties();
                 UdonSharpEditorUtility.CopyProxyToUdon(tableManager);
 
-                // 各座席の DrawCardButton に deckMgr をバインド
+                // 各座席の DrawCardButton に deckMgr および linkedSeat をバインド
                 for (int i = 0; i < 4; i++)
                 {
                     if (drawButtons[i] != null)
                     {
                         drawButtons[i].SetDeckManager(deckMgr);
+                        if (seatControllers != null && i < seatControllers.Length)
+                        {
+                            drawButtons[i].SetLinkedSeat(seatControllers[i]);
+                        }
                         SerializedObject soDrawBtn = new SerializedObject(drawButtons[i]);
                         soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+                        if (seatControllers != null && i < seatControllers.Length)
+                        {
+                            soDrawBtn.FindProperty("linkedSeat").objectReferenceValue = seatControllers[i];
+                        }
                         soDrawBtn.ApplyModifiedProperties();
                         UdonSharpEditorUtility.CopyProxyToUdon(drawButtons[i]);
+
+                        // エディタ生成時点の初期残数を即時反映 (案A)
+                        drawButtons[i].UpdateRemainingCount(config.poolCardCount);
                     }
                 }
+
+                // DeckManager 側に全座席の DrawCardButton をバインド (C#プロキシ＆シリアライズ)
+                deckMgr.SetHandDrawButtons(drawButtons);
+                SerializedObject soDeckMgr = new SerializedObject(deckMgr);
+                SerializedProperty propDrawBtns = soDeckMgr.FindProperty("handDrawButtons");
+                propDrawBtns.arraySize = drawButtons.Length;
+                for (int b = 0; b < drawButtons.Length; b++)
+                {
+                    propDrawBtns.GetArrayElementAtIndex(b).objectReferenceValue = drawButtons[b];
+                }
+                soDeckMgr.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(deckMgr);
             }
 
             Selection.activeGameObject = root;
@@ -635,6 +658,13 @@ namespace BoardGameKit.Editor
             {
                 drawTextRt.sizeDelta = new Vector2(0.28f, 0.14f);
             }
+
+            // DrawCardButton に buttonText (TextMeshPro) をバインド
+            drawUdon.SetButtonText(drawTmp);
+            soDrawBtn.Update();
+            soDrawBtn.FindProperty("buttonText").objectReferenceValue = drawTmp;
+            soDrawBtn.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(drawUdon);
 
             // ==========================================
             // 2. 右側: 3Dプレイボタン (Play_Button)
@@ -813,7 +843,10 @@ namespace BoardGameKit.Editor
             soHandler.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(deckHandler);
 
-            // 5. DeckManager 設定
+            // 5. DeckManager 設定 (C#プロキシ＆シリアライズの完全同期)
+            deckManager.SetInteractHandler(deckHandler);
+            deckManager.SetCardPool(poolCards);
+
             SerializedObject soDeck = new SerializedObject(deckManager);
             soDeck.FindProperty("defaultCardCount").intValue = poolCount;
             soDeck.FindProperty("deckMeshTransform").objectReferenceValue = deckQuad.transform;

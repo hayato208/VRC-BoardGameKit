@@ -25,12 +25,18 @@ namespace BoardGameKit.Core
         [Tooltip("山札のインタラクトハンドラー（ツールチップInteractionText連動用）")]
         [SerializeField] private DeckInteractHandler interactHandler;
 
+        [Tooltip("全席の手元ドローボタンへの参照（残数表示同期用）")]
+        [SerializeField] private DrawCardButton[] handDrawButtons;
+
         [Header("Card Object Pool")]
         [Tooltip("山札が管理するカード実体配列（オブジェクトプール）")]
         [SerializeField] private CardController[] cardPool;
 
         public DeckInteractHandler InteractHandler => interactHandler;
         public void SetInteractHandler(DeckInteractHandler handler) => interactHandler = handler;
+
+        public DrawCardButton[] HandDrawButtons => handDrawButtons;
+        public void SetHandDrawButtons(DrawCardButton[] buttons) => handDrawButtons = buttons;
 
         public CardController[] CardPool => cardPool;
         public void SetCardPool(CardController[] pool) => cardPool = pool;
@@ -265,14 +271,26 @@ namespace BoardGameKit.Core
         {
             if (deckMeshTransform != null)
             {
-                // 山札が0枚のときはメッシュを非表示、残数があれば表示（縦横比は維持）
-                deckMeshTransform.gameObject.SetActive(deckTopIndex > 0 || !isInitialized);
+                // 山札が0枚になってもオブジェクトを非表示にせず常時表示を維持
+                deckMeshTransform.gameObject.SetActive(true);
             }
+
+            int count = isInitialized ? deckTopIndex : defaultCardCount;
 
             if (interactHandler != null)
             {
-                int count = isInitialized ? deckTopIndex : defaultCardCount;
                 interactHandler.UpdateInteractionText(count);
+            }
+
+            if (handDrawButtons != null)
+            {
+                for (int i = 0; i < handDrawButtons.Length; i++)
+                {
+                    if (handDrawButtons[i] != null)
+                    {
+                        handDrawButtons[i].UpdateRemainingCount(count);
+                    }
+                }
             }
         }
 

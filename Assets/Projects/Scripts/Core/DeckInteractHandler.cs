@@ -64,42 +64,22 @@ namespace BoardGameKit.Core
                 }
             }
 
-            // 着席していない場合
-            if (mySeat == -1)
+            // 着席していない場合（未参加プレイヤーのドローを遮断）
+            if (mySeat == -1 || mySeatCtrl == null)
             {
-                // テーブル連動なし（サンドボックス単体操作）の場合は直接1枚引く
-                if (deckManager != null)
-                {
-                    int drawn = deckManager.DrawCard();
-                    Debug.Log($"[VRC-BoardGameKit] [3D Interact] 単体ドローを実行しました (Card ID: {drawn})");
-                }
-                else
-                {
-                    Debug.LogWarning("[VRC-BoardGameKit] [3D Interact] プレイエリアに参加していないためドローできません。右脇のキューブをクリックして参加してください。");
-                }
+                Debug.LogWarning("[VRC-BoardGameKit] [DeckInteractHandler] プレイエリアに参加（着席）していないためドローできません。座席右脇のキューブをクリックして参加してください。");
                 return;
             }
 
-            // 着席している場合
-            Debug.Log($"[VRC-BoardGameKit] [3D Interact] 山札をクリックしてドローを実行 (Seat: {mySeat})");
-
-            // PersonalHandArea（円弧スロット空間）へのプールカード自動配備
-            if (mySeatCtrl != null && mySeatCtrl.GetLinkedHandArea() != null)
+            // 着席しているプレイヤーの手札エリアへドロー処理を一括委譲 (Tell, Don't Ask & SSOT)
+            PersonalHandArea handArea = mySeatCtrl.GetLinkedHandArea();
+            if (handArea != null && deckManager != null)
             {
-                PersonalHandArea handArea = mySeatCtrl.GetLinkedHandArea();
-                CardSnapZone emptySlot = handArea.GetFirstEmptySlot();
-
-                if (emptySlot != null)
-                {
-                    if (deckManager != null)
-                    {
-                        deckManager.DrawCardForZone(emptySlot);
-                    }
-                }
-                else
-                {
-                    Debug.LogWarning($"[VRC-BoardGameKit] [3D Interact] 手札スロットが満杯のためドローできません: Seat {mySeat}");
-                }
+                handArea.TryDrawCard(deckManager);
+            }
+            else
+            {
+                Debug.LogWarning($"[VRC-BoardGameKit] [DeckInteractHandler] handArea または deckManager が未設定です: Seat {mySeat}");
             }
         }
     }
