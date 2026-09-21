@@ -1274,6 +1274,79 @@ AIが自律的に開発を進める中で、プロンプトの指示を過剰に
 *   **事象**: プラグイン連携コード適用時に、`SeatController` から呼び出されていた `TableManager.OnPlayerSeated` / `OnPlayerLeftSeat` がコード整理の過程で脱落し、`CS1061` コンパイルエラーおよびU#アップグレードエラーを引き起こした。
 *   **教訓**: クラス間を結ぶ連携用イベントハンドラー（着席・離席・リセット等）は、たとえ現時点で内部処理が空（スタブ）であっても勝手に削除してはならない。インターフェース契約として明示的に保持し、XMLドキュメントコメントで呼び出し元（`SeatController`）を明記しておくことが保守上極めて重要である。
 
+---
+
+## 49. 座席連携イベントと手番排他バリデーション設計 (T49 - Phase 2)
+
+### ① `SeatController` と `TableManager` の双方向座席連動
+*   **背景**:
+    *   従来の座席管理は `SeatController` 内部のローカル表示制御にとどまっており、`TableManager` は「誰がどの席に座っているか」を逆引き・追跡する簡易APIを持っていなかった。
+*   **解決**:
+    *   `SeatController.JoinSeat` / `LeaveSeat` 時に、`tableManager.OnPlayerSeated(seatIndex, playerId)` および `OnPlayerLeftSeat(seatIndex, playerId)` を通知。
+    *   `TableManager` に `GetPlayerSeatIndex(int playerId)` を新設：
+        ```csharp
+        public int GetPlayerSeatIndex(int playerId)
+        {
+            if (playerId == -1 || seatControllers == null) return -1;
+            for (int i = 0; i < seatControllers.Length; i++)
+            {
+                if (seatControllers[i] != null && seatControllers[i].GetSeatedPlayerId() == playerId)
+                {
+                    return i;
+                }
+            }
+            return -1;
+        }
+        ```
+    *   これにより、カードプレイ時に操作者の `playerId` から着席座席インデックス（0〜N-1）を即座に特定できる基盤が整った。
+
+### ② 行動権限フック `CanPlayerAct` による手番排他とサンドボックス両立
+*   **課題**:
+    *   「カードの組み合わせが合法か（`CanPlayCards`）」だけでなく、「今そのプレイヤーに行動権限があるか（手番か）」を分離して判定する必要があった。
+*   **設計**:
+    *   `RulePluginBase.cs` に行動権限判定フックを新設：
+        ```csharp
+        public virtual bool CanPlayerAct(int seatIndex, int playerId)
+        {
+            return true;
+        }
+        ```
+    *   基底クラスではデフォルトで `true` を返すため、ルールプラグイン未設定（またはオーバーライドなし）の時は誰でもいつでもカードを出せるサンドボックス仕様を完全維持（KISS/YAGNI原則）。
+    *   `TableManager.PlaySelectedCards()` の先頭で、カード構成チェックに先立って `activeRulePlugin.CanPlayerAct(localSeatIndex, localPlayerId)` を評価。手番外のプレイヤーがPLAYボタンを押した場合は、即座にログを出力して選択状態を巻き戻す（`ClearAllSelections`）。
+
+### ③ ターン制ルールプラグイン（`SamplePairOnlyPlugin`）の実装パターン
+*   **実装例**:
+    *   `SamplePairOnlyPlugin` にて `CanPlayerAct` をオーバーライド：
+        ```csharp
+        public override bool CanPlayerAct(int seatIndex, int playerId)
+        {
+            if (tableManager == null) return true;
+            if (seatIndex == -1) return false; // 未着席
+            return seatIndex == tableManager.GetCurrentTurnSeatIndex(); // 手番座席一致
+        }
+        ```
+    *   ルール側で `tableManager.GetCurrentTurnSeatIndex()` と比較するだけで、コア基盤側のコードを書き換えることなく、厳密なターン制排他制御を成立させることができる委譲モデルの有効性を実証した。
+
+---
+
+## 27. ドロー処理の TableManager 集約とサンドボックス運用の設計原則
+
+### ① サンドボックスモードと `RulePluginBase` の空継承
+*   `RulePluginBase` は、全メソッドに安全なデフォルト振る舞い（全カードプレイ許可、全プレイヤー行動許可、イベント空実装）が定義されている：
+    *   `CanPlayCards` ➔ デフォルトで `true`
+    *   `CanPlayerAct` ➔ デフォルトで `true`
+*   したがって、**`RulePluginBase` を継承してメソッドをオーバーライドしない（空継承）、あるいはルールプラグインをアタッチしない場合、自動的に完全自由な「サンドボックス（おもちゃ箱）モード」として動作する。**
+*   これにより、「厳密なルール管理ゲーム」と「自由にカードを配って遊ぶサンドボックス」を単一のコードベース・基盤で完全に両立できる。
+
+### ② ドロー処理の TableManager 経由一本化（2層アーキテクチャの徹底）
+*   **バイパス問題の解消**:
+    *   従来は `DrawCardButton` や `DeckInteractHandler` が `PersonalHandArea.TryDrawCard` を直接呼び出していたため、手番外ドロー制限や将来のルールフックが素通り（バイパス）される懸念があった。
+    *   ドロー処理の呼び出し先を `tableManager.DrawCardForPlayer(seatIndex)` に一本化することで、カードプレイ（`PlaySelectedCards`）とドロー（`DrawCardForPlayer`）の双方が `TableManager` を起点とする対称な構造へ整流化された。
+*   **フォールバック設計（KISS & 防護プログラミング）**:
+    *   `DrawCardButton` / `DeckInteractHandler` 共に、`tableManager` が Inspector 上で未設定の場合でも `SeatController.GetTableManager()` を自動解決し、それでも取得できない単体テスト環境では直接 `TryDrawCard` を呼ぶフォールバックを備えているため、後方互換性・環境依存の耐性が極めて高い。
+
+
+
 
 
 

@@ -56,7 +56,7 @@ namespace BoardGameKit.Core
         // --- 同期変数 ---
         // 現在の手番（座席番号 0〜N-1）
         [UdonSynced]
-        private int currentTurnSeatIndex = 0;
+        [SerializeField] private int currentTurnSeatIndex = 0;
 
         // ゲーム進行状態（0: 待機中, 1: 対戦中, 2: 終局）
         [UdonSynced]
@@ -177,12 +177,24 @@ namespace BoardGameKit.Core
             RequestSerialization();
         }
 
+        /// <summary>
+        /// プレイヤーが座席に着席した際にSeatControllerから呼び出されるイベントハンドラーです。
+        /// </summary>
+        /// <param name="seatIndex">着席した座席のインデックス</param>
+        /// <param name="playerId">着席したプレイヤーのID</param>
         public void OnPlayerSeated(int seatIndex, int playerId)
         {
+            Debug.Log($"[TableManager] 座席 {seatIndex} にプレイヤー {playerId} が着席しました。");
         }
 
+        /// <summary>
+        /// プレイヤーが座席から離席した際にSeatControllerから呼び出されるイベントハンドラーです。
+        /// </summary>
+        /// <param name="seatIndex">離席した座席のインデックス</param>
+        /// <param name="playerId">離席したプレイヤーのID</param>
         public void OnPlayerLeftSeat(int seatIndex, int playerId)
         {
+            Debug.Log($"[TableManager] 座席 {seatIndex} からプレイヤー {playerId} が離席しました。");
         }
 
         /// <summary>
@@ -351,34 +363,49 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
-        /// 選択中のカードをクリックした順番通りに中央プレイエリアへ一括でプレイする (MultiSelectモード)
+        /// 選択中のカード群を中央プレイエリアへ一括整列配置します。
+        /// 手番判定およびルールバリデーションを行います。
         /// </summary>
         public void PlaySelectedCards()
         {
-            if (centerPlayZone == null)
+            if (centerPlayZone == null || selectedCount == 0) return;
+            if (deckManager == null || deckManager.CardPool == null) return;
+
+            VRCPlayerApi localPlayer = Networking.LocalPlayer;
+            int localPlayerId = localPlayer != null ? localPlayer.playerId : -1;
+            int localSeatIndex = GetPlayerSeatIndex(localPlayerId);
+
+            // ルールプラグインによる手番判定
+            if (activeRulePlugin != null)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] centerPlayZone が未設定のためプレイできません。");
-                return;
+                if (!activeRulePlugin.CanPlayerAct(localSeatIndex, localPlayerId))
+                {
+                    Debug.Log($"[TableManager] 現在の手番ではないためカードを出せません。（現在手番座席: {currentTurnSeatIndex}, 自身座席: {localSeatIndex}）");
+                    ClearAllSelections();
+                    return;
+                }
             }
 
-            if (selectedCount == 0)
+            int[] submittedCardIds = new int[selectedCount];
+            for (int i = 0; i < selectedCount; i++)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] プレイ対象として選択されたカードがありません。");
-                return;
+                submittedCardIds[i] = selectedOrder[i];
             }
 
-            if (deckManager == null || deckManager.CardPool == null)
+            // ルールプラグインによるカード構成バリデーション判定
+            if (activeRulePlugin != null)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] deckManager または CardPool が初期化されていません。");
-                return;
+                if (!activeRulePlugin.CanPlayCards(localPlayerId, submittedCardIds))
+                {
+                    ClearAllSelections();
+                    return;
+                }
             }
 
             int playedCount = 0;
-
-            // クリックされた順番（selectedOrder: FIFOキュー）に従ってプレイ
-            for (int i = 0; i < selectedCount; i++)
+            for (int i = 0; i < submittedCardIds.Length; i++)
             {
-                int cardId = selectedOrder[i];
+                int cardId = submittedCardIds[i];
                 if (cardId < 0 || cardId >= deckManager.CardPool.Length) continue;
 
                 CardController card = deckManager.CardPool[cardId];
@@ -390,17 +417,12 @@ namespace BoardGameKit.Core
                 }
             }
 
-            // キューと選択状態を完全クリア
-            ClearAllSelections();
+            if (playedCount > 0 && activeRulePlugin != null)
+            {
+                activeRulePlugin.OnCardsPlayed(localPlayerId, submittedCardIds);
+            }
 
-            if (playedCount > 0)
-            {
-                Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> [TableManager] 選択中のカード {playedCount} 枚をクリック順通りに中央プレイエリアへ一括プレイしました。(StackCount: {centerPlayZone.GetStackedCount()})</color>");
-            }
-            else
-            {
-                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] プレイ対象として有効な選択中カードがありませんでした。");
-            }
+            ClearAllSelections();
         }
 
         /// <summary>
@@ -483,6 +505,24 @@ namespace BoardGameKit.Core
                 }
             }
             return false;
+        }
+
+        /// <summary>
+        /// 指定されたプレイヤーIDが着席している座席インデックスを取得します。
+        /// </summary>
+        /// <param name="playerId">対象プレイヤーのID</param>
+        /// <returns>着席している座席インデックス（未着席時は -1）</returns>
+        public int GetPlayerSeatIndex(int playerId)
+        {
+            if (playerId == -1 || seatControllers == null) return -1;
+            for (int i = 0; i < seatControllers.Length; i++)
+            {
+                if (seatControllers[i] != null && seatControllers[i].GetSeatedPlayerId() == playerId)
+                {
+                    return i;
+                }
+            }
+            return -1;
         }
 
         // --- ゲッター ---

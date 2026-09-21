@@ -60,5 +60,38 @@ namespace BoardGameKit.Plugins
         public virtual void OnGameReset()
         {
         }
+
+        /// <summary>
+        /// 複数枚カードの一括プレイ判定を行います。
+        /// ルールプラグイン側でオーバーライドしない場合は常に全操作を許可します。
+        /// </summary>
+        /// <param name="playerId">操作を行ったプレイヤーのID</param>
+        /// <param name="cardIds">選択されたカードID一覧</param>
+        /// <returns>プレイを許可する場合はtrue、拒絶する場合はfalse</returns>
+        public virtual bool CanPlayCards(int playerId, int[] cardIds)
+        {
+            return true;
+        }
+
+        /// <summary>
+        /// 複数枚カードが場へ確定配置された直後に呼び出される通知イベントです。
+        /// </summary>
+        /// <param name="playerId">操作を行ったプレイヤーのID</param>
+        /// <param name="cardIds">配置されたカードID一覧</param>
+        public virtual void OnCardsPlayed(int playerId, int[] cardIds)
+        {
+        }
+
+        /// <summary>
+        /// 指定されたプレイヤー（または座席）が現在アクションを実行可能か判定します。
+        /// サンドボックス時は手番制限を行わないため、デフォルトで常にtrueを返します。
+        /// </summary>
+        /// <param name="seatIndex">操作プレイヤーの座席インデックス</param>
+        /// <param name="playerId">操作プレイヤーのID</param>
+        /// <returns>行動可能な場合はtrue、手番外等で拒絶する場合はfalse</returns>
+        public virtual bool CanPlayerAct(int seatIndex, int playerId)
+        {
+            return true;
+        }
     }
 }
