@@ -39,30 +39,62 @@ using BoardGameKit.Plugins;
 
 namespace BoardGameKit.Plugins
 {
+    [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class RulePluginBase : UdonSharpBehaviour
     {
-        // プレイヤーがそのカードを出せるか判定（trueで出せる）
-        public virtual bool CanPlayCard(int playerId, int cardId, int targetSlot) => true;
+        [Header("Plugin Info")]
+        public string ruleName = "Standard Sandbox";
 
-        // カードが出された直後の処理
-        public virtual void OnCardPlayed(int playerId, int cardId, int targetSlot) {}
+        // 単一カードのプレイ判定（1枚出し）
+        public virtual bool CanPlayCard(int playerId, int cardId, int targetSlot)
+        {
+            return true;
+        }
+
+        // 複数枚カードの一括プレイ判定（ペア、役出し等）
+        public virtual bool CanPlayCards(int playerId, int[] cardIds)
+        {
+            return true;
+        }
+
+        // 単一カードが出された直後の処理
+        public virtual void OnCardPlayed(int playerId, int cardId, int targetSlot)
+        {
+        }
+
+        // 複数枚カードが出された直後の処理
+        public virtual void OnCardsPlayed(int playerId, int[] cardIds)
+        {
+        }
 
         // ターン開始時
-        public virtual void OnTurnStart(int activePlayerId) {}
+        public virtual void OnTurnStart(int activePlayerId)
+        {
+        }
+
+        // ターン終了時
+        public virtual void OnTurnEnd(int activePlayerId)
+        {
+        }
 
         // 勝利判定（勝者のplayerIdを返す。未決着は -1）
-        public virtual int CheckWinCondition() => -1;
+        public virtual int CheckWinCondition()
+        {
+            return -1;
+        }
 
         // ゲームリセット時
-        public virtual void OnGameReset() {}
+        public virtual void OnGameReset()
+        {
+        }
     }
 }
 
 ### 【作成したいゲームのルール】
-- ゲーム名: [ここにゲーム名を入力。例: シンプル・ハイカード]
+- ゲーム名: [ここにゲーム名を入力。例: ペア限定ルール / シンプル・ハイカード]
 - ルール詳細:
   - カードIDは 0〜51（標準トランプ: スート = cardId / 13, ランク = (cardId % 13) + 1）
-  - [ルール1: 例: 場に出ているカードより大きい数字しか出せない]
+  - [ルール1: 例: 複数枚選択時、2枚ちょうどのペアでなければ出せない]
   - [ルール2: 例: 手札が最初になくなったプレイヤーが勝利]
 
 上記要件を満たす C# スクリプトのみをコードブロックで出力してください。
@@ -70,7 +102,7 @@ namespace BoardGameKit.Plugins
 
 ---
 
-## 3. 生成されるコード例（シンプル・ハイカードルール）
+## 3. 生成されるコード例（ペア限定ルール: SamplePairOnlyPlugin）
 
 Local LLMから実際に出力されるコードのイメージです：
 
@@ -79,35 +111,42 @@ using UdonSharp;
 using UnityEngine;
 using BoardGameKit.Plugins;
 
-namespace MyGame.Rules
+namespace BoardGameKit.Examples
 {
-    [UdonBehaviourSyncMode(UdonSyncMode.None)]
-    public class HighCardRulePlugin : RulePluginBase
+    /// <summary>
+    /// BOOTH配布用サンプルルールプラグイン。
+    /// 常にカードを2枚選択して出すルールを定義する最小実装例です。
+    /// </summary>
+    [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
+    public class SamplePairOnlyPlugin : RulePluginBase
     {
-        private int lastPlayedRank = 0;
-
-        public override bool CanPlayCard(int playerId, int cardId, int targetSlot)
+        private void Start()
         {
-            // トランプのランク（1: A, 2〜10, 11: J, 12: Q, 13: K）
-            int rank = (cardId % 13) + 1;
-            
-            // 場に出ているカード以上の数字でなければ出せないガード
-            if (lastPlayedRank > 0 && rank <= lastPlayedRank)
+            this.ruleName = "Pair Only Mode";
+        }
+
+        /// <summary>
+        /// 選択されたカードが2枚ちょうどの時のみプレイを許可します。
+        /// </summary>
+        public override bool CanPlayCards(int playerId, int[] cardIds)
+        {
+            if (cardIds == null) return false;
+
+            if (cardIds.Length == 2)
             {
-                return false; 
+                return true;
             }
-            return true;
+
+            Debug.Log("[SamplePairOnlyPlugin] カードは2枚同時に選択して出す必要があります。");
+            return false;
         }
 
-        public override void OnCardPlayed(int playerId, int cardId, int targetSlot)
+        /// <summary>
+        /// 2枚のカードが場に出された際にログを出力します。
+        /// </summary>
+        public override void OnCardsPlayed(int playerId, int[] cardIds)
         {
-            int rank = (cardId % 13) + 1;
-            lastPlayedRank = rank;
-        }
-
-        public override void OnGameReset()
-        {
-            lastPlayedRank = 0;
+            Debug.Log($"[SamplePairOnlyPlugin] プレイヤー({playerId})が2枚のカードを出しました: ID {cardIds[0]}, {cardIds[1]}");
         }
     }
 }

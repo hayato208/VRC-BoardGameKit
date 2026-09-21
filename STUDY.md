@@ -1232,7 +1232,47 @@ AIが自律的に開発を進める中で、プロンプトの指示を過剰に
 *   **解決（単一真実源化）**:
     *   ドローの実処理を `PersonalHandArea.TryDrawCard(DeckManager deckManager)` に集約。
     *   山札切れ判定（`IsDeckEmpty`）、空きスロット探索（`GetFirstEmptySlot`）、配備、統一ログ出力（`[Draw] ドロー成功: ...`）をすべて同メソッド内に一本化。
-    *   `DrawCardButton`、`DeckInteractHandler`、`TableManager.DrawCardForPlayer` の3箇所すべてから `handArea.TryDrawCard(deckManager)` を呼ぶ構造へスリム化し、二重記述を100%根絶した。
+    *   `DrawCardButton`、`DeckInteractHandler`、`TableManager.DrawCardForPlayer` の3箇所すべてから `handArea.TryDrawCard(deckManager)` を呼ぶ構造へスリム化し、二重記述を100%根逐した。
+
+---
+
+## 48. 複数枚カードバリデーション基盤と疎結合ルールプラグイン設計 (WebGemini Phase 1 / T48)
+
+### ① 複数枚出し（`CanPlayCards` / `OnCardsPlayed`）の拡張と2層アーキテクチャ委譲
+*   **課題**: 従来の `RulePluginBase` は単一カード `CanPlayCard(int playerId, int cardId, int targetSlot)` のみを受け取る仕様であったため、大富豪（ペア・階段）やポーカー（役出し）など「複数枚を同時に選択して出すゲーム」の合法手判定ができなかった。
+*   **設計**:
+    *   `RulePluginBase` に配列を受け取る仮想メソッドを追加：
+        ```csharp
+        public virtual bool CanPlayCards(int playerId, int[] cardIds) { return true; }
+        public virtual void OnCardsPlayed(int playerId, int[] cardIds) { }
+        ```
+    *   基底クラス側ではデフォルトで `true` を返し、ルールプラグイン未設定（またはオーバーライドなし）の場合は全カード操作を無制限に許可するサンドボックス動作を保証（KISS/YAGNI原則）。
+    *   `TableManager.PlaySelectedCards()` では、選択中の全カードIDを配列化して `activeRulePlugin.CanPlayCards` に問い合わせ、`false` の場合はスナップ配置を行わず `ClearAllSelections()` で手元通常位置へ安全に巻き戻す。
+
+### ② 実行時参照外れを防ぐ動的フォールバック解決（`Start()`）
+*   **課題**: Unityエディタ上やPrefab更新時、`TableManager.activeRulePlugin` のシリアライズ参照が外れて `null` になるケースがあり、手動での再バインドを忘れるとルール判定が機能しなくなるリスクがあった。
+*   **解決**:
+    *   `TableManager.Start()` にて、Inspector割り当てが未設定（`null`）の場合に同一オブジェクトおよび子階層から探索するフォールバックを実装：
+        ```csharp
+        if (activeRulePlugin == null)
+        {
+            activeRulePlugin = GetComponent<RulePluginBase>();
+            if (activeRulePlugin == null)
+            {
+                activeRulePlugin = GetComponentInChildren<RulePluginBase>();
+            }
+        }
+        ```
+    *   Inspectorでの明示的バインドを主軸としつつ、実行時の自動解決（フォールバック）を併用することで、Prefab再生成や階層変更に対する堅牢性を向上させた。
+
+### ③ 疎結合シーン運用（`DynamicCardField_4Players/SampleRule`）
+*   **設計意図**:
+    *   ルール判定ロジック（`SamplePairOnlyPlugin` 等）を `TableManager` と同じオブジェクトに直接アタッチするのではなく、独立したゲームオブジェクト（`DynamicCardField_4Players/SampleRule`）として配置。
+    *   これにより、テーブル基盤（同期・山札・手札スロット）に一切触れることなく、ルールプラグインの差し替え・On/Off（サンドボックス化）をUnityインスペクター上のD&DまたはGameObjectのアクティブ切替だけで行える、極めて疎結合な構造を実現した。
+
+### ④ 座席イベント脱落の教訓とスタブ保護
+*   **事象**: プラグイン連携コード適用時に、`SeatController` から呼び出されていた `TableManager.OnPlayerSeated` / `OnPlayerLeftSeat` がコード整理の過程で脱落し、`CS1061` コンパイルエラーおよびU#アップグレードエラーを引き起こした。
+*   **教訓**: クラス間を結ぶ連携用イベントハンドラー（着席・離席・リセット等）は、たとえ現時点で内部処理が空（スタブ）であっても勝手に削除してはならない。インターフェース契約として明示的に保持し、XMLドキュメントコメントで呼び出し元（`SeatController`）を明記しておくことが保守上極めて重要である。
 
 
 
