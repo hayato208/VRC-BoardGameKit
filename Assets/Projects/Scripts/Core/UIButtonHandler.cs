@@ -1,4 +1,4 @@
-﻿using UdonSharp;
+using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
 using VRC.Udon;
@@ -14,10 +14,13 @@ namespace BoardGameKit.Core
     public class UIButtonHandler : UdonSharpBehaviour
     {
         [Tooltip("呼び出し先のTableUIController")]
-        public TableUIController targetUI;
+        [SerializeField] private TableUIController targetUI;
 
         [Tooltip("実行するイベント名 (OnClickDealButton, OnClickDrawButton 等)")]
-        public string customEventName;
+        [SerializeField] private string customEventName;
+
+        public void SetTargetUI(TableUIController ui) => targetUI = ui;
+        public void SetCustomEventName(string eventName) => customEventName = eventName;
 
         /// <summary>
         /// 3D直接インタラクトまたはUIクリック時に発火

@@ -6,17 +6,6 @@ using VRC.Udon;
 namespace BoardGameKit.Core
 {
     /// <summary>
-    /// スロットが属するゾーンの種別（抽象モデル）
-    /// </summary>
-    public enum CardZoneType
-    {
-        Hand = 0,       // プレイヤー手札スロット
-        Field = 1,      // 場のプレイエリア
-        Discard = 2,    // 捨て札・墓地
-        Deck = 3        // 山札
-    }
-
-    /// <summary>
     /// カードが吸着（スナップ）するスロット領域を定義するコンポーネント。
     /// 手札トレイのスロットや、テーブルの場のマス目にアタッチされる。
     /// Tell, Don't Ask原則に基づき、カードのTransformを外部から直接変更せず、
@@ -25,13 +14,9 @@ namespace BoardGameKit.Core
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class CardSnapZone : UdonSharpBehaviour
     {
-        [Header("Zone Identity")]
-        [Tooltip("このスナップ枠が属するゾーン種別（手札、場など）")]
-        public CardZoneType zoneType = CardZoneType.Hand;
-
         [Header("Slot Information")]
         [Tooltip("スロットの名前または識別番号")]
-        public string slotName = "SnapSlot_0";
+        [SerializeField] private string slotName = "SnapSlot_0";
 
         // --- 実行時動的ステート（シリアライズ除外・カプセル化） ---
         private bool isOccupied = false;
@@ -39,10 +24,10 @@ namespace BoardGameKit.Core
 
         [Header("Stack Settings")]
         [Tooltip("複数枚のカードを重ねて配置（スタック）することを許可するか（中央プレイエリア等）")]
-        public bool allowStack = false;
+        [SerializeField] private bool allowStack = false;
 
         [Tooltip("スタック時の1枚あたりの手前浮上オフセット量 (m) ※Zファイティング防止")]
-        public float stackElevationOffset = 0.002f;
+        [SerializeField] private float stackElevationOffset = 0.002f;
 
         // スタックされたカード配列（U#最適化: 最大64枚の固定長）
         private const int MAX_STACK_SIZE = 64;
@@ -51,13 +36,13 @@ namespace BoardGameKit.Core
 
         [Header("Visual Feedback")]
         [Tooltip("カードが近づいたときにハイライト表示する枠（MeshRenderer）")]
-        public MeshRenderer guideRenderer;
+        [SerializeField] private MeshRenderer guideRenderer;
 
         [Tooltip("通常時のガイド色")]
-        public Color defaultGuideColor = new Color(1f, 1f, 1f, 0.15f);
+        [SerializeField] private Color defaultGuideColor = new Color(1f, 1f, 1f, 0.15f);
 
         [Tooltip("カード接近時のガイド色（緑色に発光）")]
-        public Color highlightGuideColor = new Color(0.2f, 1f, 0.4f, 0.5f);
+        [SerializeField] private Color highlightGuideColor = new Color(0.2f, 1f, 0.4f, 0.5f);
 
         private Material guideMaterialInstance;
 
@@ -72,6 +57,12 @@ namespace BoardGameKit.Core
         }
 
         #region Tell, Don't Ask 外部公開API
+
+        public string SlotName => slotName;
+        public void SetSlotName(string name) => slotName = name;
+
+        public bool AllowStack => allowStack;
+        public void SetAllowStack(bool allow) => allowStack = allow;
 
         /// <summary>
         /// 現在このスロットが占有されているかを返す
@@ -96,19 +87,6 @@ namespace BoardGameKit.Core
         {
             return stackedCount;
         }
-
-        /// <summary>
-        /// スタックされているカード配列を返す
-        /// </summary>
-        public CardController[] GetStackedCards()
-        {
-            return stackedCards;
-        }
-
-        // --- ゾーン種別判定ゲッター（抽象モデル） ---
-        public CardZoneType GetZoneType() => zoneType;
-        public bool IsHandZone() => zoneType == CardZoneType.Hand;
-        public bool IsFieldZone() => zoneType == CardZoneType.Field;
 
         /// <summary>
         /// カードからの配置要請を受け入れ、判定する命令（Tell）。

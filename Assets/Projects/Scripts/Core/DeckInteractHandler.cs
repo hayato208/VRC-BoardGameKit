@@ -13,24 +13,17 @@ namespace BoardGameKit.Core
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class DeckInteractHandler : UdonSharpBehaviour
     {
-        [Tooltip("全体進行を司るTableManagerへの参照")]
-        public TableManager tableManager;
-
         [Tooltip("山札マネージャーへの直接参照")]
-        public DeckManager deckManager;
+        [SerializeField] private DeckManager deckManager;
 
         [Tooltip("各座席コントローラーへの参照")]
-        public SeatController[] seatControllers;
+        [SerializeField] private SeatController[] seatControllers;
 
-        [Tooltip("ドロー時に手元スロットへ吸着させるテストカード (任意)")]
-        public CardController testCard;
+        public void SetDeckManager(DeckManager dm) => deckManager = dm;
+        public void SetSeatControllers(SeatController[] sc) => seatControllers = sc;
 
         private void Start()
         {
-            if (deckManager == null)
-            {
-                deckManager = GetComponentInParent<DeckManager>();
-            }
             int count = (deckManager != null) ? deckManager.GetRemainingCount() : 0;
             UpdateInteractionText(count);
         }

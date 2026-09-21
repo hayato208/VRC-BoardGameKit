@@ -14,10 +14,13 @@ namespace BoardGameKit.Core
     public class DrawCardButton : UdonSharpBehaviour
     {
         [Tooltip("山札マネージャーへの参照")]
-        public DeckManager deckManager;
+        [SerializeField] private DeckManager deckManager;
 
         [Tooltip("紐付くプレイヤーの手札エリア")]
-        public PersonalHandArea linkedHandArea;
+        [SerializeField] private PersonalHandArea linkedHandArea;
+
+        public void SetDeckManager(DeckManager dm) => deckManager = dm;
+        public void SetLinkedHandArea(PersonalHandArea area) => linkedHandArea = area;
 
         private void Start()
         {

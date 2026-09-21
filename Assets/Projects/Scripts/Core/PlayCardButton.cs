@@ -15,13 +15,9 @@ namespace BoardGameKit.Core
     public class PlayCardButton : UdonSharpBehaviour
     {
         [Tooltip("テーブル統括マネージャーへの参照")]
-        public TableManager tableManager;
+        [SerializeField] private TableManager tableManager;
 
-        [Tooltip("紐付くプレイヤーの手札エリア")]
-        public PersonalHandArea linkedHandArea;
-
-        [Tooltip("紐付く座席インデックス（0〜3）")]
-        public int seatIndex = -1;
+        public void SetTableManager(TableManager tm) => tableManager = tm;
 
         private void Start()
         {

@@ -23,11 +23,17 @@ namespace BoardGameKit.Core
         [SerializeField] private Transform deckMeshTransform;
 
         [Tooltip("山札のインタラクトハンドラー（ツールチップInteractionText連動用）")]
-        public DeckInteractHandler interactHandler;
+        [SerializeField] private DeckInteractHandler interactHandler;
 
         [Header("Card Object Pool")]
         [Tooltip("山札が管理するカード実体配列（オブジェクトプール）")]
-        public CardController[] cardPool;
+        [SerializeField] private CardController[] cardPool;
+
+        public DeckInteractHandler InteractHandler => interactHandler;
+        public void SetInteractHandler(DeckInteractHandler handler) => interactHandler = handler;
+
+        public CardController[] CardPool => cardPool;
+        public void SetCardPool(CardController[] pool) => cardPool = pool;
 
         // --- 同期変数 ---
         // 山札のカードID配列（インデックス 0 〜 deckTopIndex-1 が山札に残っているカード）
@@ -87,7 +93,7 @@ namespace BoardGameKit.Core
                 {
                     if (cardPool[i] != null)
                     {
-                        cardPool[i].cardId = i;
+                        cardPool[i].SetCardId(i);
                         cardPool[i].ResetToDeck(deckPos, deckRot);
                     }
                 }
@@ -261,11 +267,6 @@ namespace BoardGameKit.Core
             {
                 // 山札が0枚のときはメッシュを非表示、残数があれば表示（縦横比は維持）
                 deckMeshTransform.gameObject.SetActive(deckTopIndex > 0 || !isInitialized);
-            }
-
-            if (interactHandler == null)
-            {
-                interactHandler = GetComponentInChildren<DeckInteractHandler>();
             }
 
             if (interactHandler != null)

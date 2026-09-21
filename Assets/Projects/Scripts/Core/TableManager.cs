@@ -25,10 +25,16 @@ namespace BoardGameKit.Core
     {
         [Header("Play Settings")]
         [Tooltip("カードのプレイ方式（Immediate: 1クリックで即座に場へ / MultiSelect: 複数選択して手元ボタンで場へ）")]
-        public CardPlayMode playMode = CardPlayMode.Immediate;
+        [SerializeField] private CardPlayMode playMode = CardPlayMode.Immediate;
 
         [Tooltip("中央の場のプレイエリア（スナップ枠）")]
-        public CardSnapZone centerPlayZone;
+        [SerializeField] private CardSnapZone centerPlayZone;
+
+        public CardPlayMode PlayMode => playMode;
+        public void SetPlayMode(CardPlayMode mode) => playMode = mode;
+
+        public CardSnapZone CenterPlayZone => centerPlayZone;
+        public void SetCenterPlayZone(CardSnapZone zone) => centerPlayZone = zone;
 
         [Header("Core Subsystem References")]
         [Tooltip("山札マネージャーへの参照")]
@@ -189,12 +195,12 @@ namespace BoardGameKit.Core
         public void OnCardClicked(CardController card)
         {
             if (card == null) return;
-            Debug.Log($"[VRC-BoardGameKit] [TableManager] カードがクリックされました: {card.gameObject.name} (ID: {card.cardId}, PlayMode: {playMode})");
+            Debug.Log($"[VRC-BoardGameKit] [TableManager] カードがクリックされました: {card.gameObject.name} (ID: {card.CardId}, PlayMode: {playMode})");
 
             CardSnapZone zone = card.GetCurrentZone();
 
             // 共通の場（centerPlayZone）にあるカードは操作不可のため即座にreturn
-            if (centerPlayZone != null && zone != null && (zone == centerPlayZone || zone.gameObject == centerPlayZone.gameObject))
+            if (centerPlayZone != null && zone == centerPlayZone)
             {
                 Debug.Log($"<color=#FFAA00>[VRC-BoardGameKit] [TableManager] 中央プレイエリア（場）にあるカードは操作できません: {card.gameObject.name}</color>");
                 return;
@@ -224,15 +230,15 @@ namespace BoardGameKit.Core
             CardSnapZone currentZone = card.GetCurrentZone();
 
             // すでに中央の場に出ているカードは二重プレイ防止のためスキップ
-            if (currentZone != null && (currentZone == centerPlayZone || currentZone.gameObject == centerPlayZone.gameObject))
+            if (currentZone != null && currentZone == centerPlayZone)
             {
                 return false;
             }
 
             // 選択追跡フラグを解除
-            if (card.cardId >= 0 && card.cardId < isCardSelected.Length)
+            if (card.CardId >= 0 && card.CardId < isCardSelected.Length)
             {
-                isCardSelected[card.cardId] = false;
+                isCardSelected[card.CardId] = false;
             }
 
             // 操作プレイヤーにカードの所有権を移行
@@ -265,7 +271,7 @@ namespace BoardGameKit.Core
         /// 即時モード (Immediate Mode): 1クリックで即座に中央プレイエリアへ整列移動
         /// </summary>
         /// <param name="card">プレイするカード</param>
-        public void PlayCardImmediate(CardController card)
+        private void PlayCardImmediate(CardController card)
         {
             if (card == null) return;
             if (centerPlayZone == null)
@@ -287,18 +293,9 @@ namespace BoardGameKit.Core
         /// カードの選択状態を反転（トグル）し、選択順序キューを更新する (MultiSelectモード)
         /// </summary>
         /// <param name="card">選択/解除対象のカード</param>
-        public void ToggleCardSelection(CardController card)
+        private void ToggleCardSelection(CardController card)
         {
             if (card == null) return;
-
-            CardSnapZone zone = card.GetCurrentZone();
-
-            // 共通の場（centerPlayZone）にあるカードは選択不可のため即座にreturn
-            if (centerPlayZone != null && zone != null && (zone == centerPlayZone || zone.gameObject == centerPlayZone.gameObject))
-            {
-                Debug.Log($"<color=#FFAA00>[VRC-BoardGameKit] [TableManager] 中央プレイエリア（場）にあるカードは選択できません: {card.gameObject.name}</color>");
-                return;
-            }
 
             // 操作プレイヤーにカードの所有権を移行（VRCObjectSyncによる強制同期巻き戻しを防止）
             VRCPlayerApi localPlayer = Networking.LocalPlayer;
@@ -307,7 +304,7 @@ namespace BoardGameKit.Core
                 Networking.SetOwner(localPlayer, card.gameObject);
             }
 
-            int id = card.cardId;
+            int id = card.CardId;
             if (id < 0 || id >= isCardSelected.Length)
             {
                 Debug.LogWarning($"[VRC-BoardGameKit] [TableManager] カードIDが追跡許容範囲外です: {id} (許容最大: {isCardSelected.Length - 1})");
@@ -361,15 +358,6 @@ namespace BoardGameKit.Core
         /// </summary>
         public void PlaySelectedCards()
         {
-            PlaySelectedCards(null);
-        }
-
-        /// <summary>
-        /// 選択中のカードをクリックした順番通りに中央プレイエリアへ一括でプレイする (MultiSelectモード)
-        /// </summary>
-        /// <param name="handArea">操作プレイヤーの手札エリア（指定時は手札スロット内のカードか検証）</param>
-        public void PlaySelectedCards(PersonalHandArea handArea)
-        {
             if (centerPlayZone == null)
             {
                 Debug.LogWarning("[VRC-BoardGameKit] [TableManager] centerPlayZone が未設定のためプレイできません。");
@@ -382,9 +370,9 @@ namespace BoardGameKit.Core
                 return;
             }
 
-            if (deckManager == null || deckManager.cardPool == null)
+            if (deckManager == null || deckManager.CardPool == null)
             {
-                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] deckManager または cardPool が初期化されていません。");
+                Debug.LogWarning("[VRC-BoardGameKit] [TableManager] deckManager または CardPool が初期化されていません。");
                 return;
             }
 
@@ -394,30 +382,10 @@ namespace BoardGameKit.Core
             for (int i = 0; i < selectedCount; i++)
             {
                 int cardId = selectedOrder[i];
-                if (cardId < 0 || cardId >= deckManager.cardPool.Length) continue;
+                if (cardId < 0 || cardId >= deckManager.CardPool.Length) continue;
 
-                CardController card = deckManager.cardPool[cardId];
+                CardController card = deckManager.CardPool[cardId];
                 if (card == null) continue;
-
-                // handAreaが指定されている場合、手札スロット配列に属しているか安全に照合
-                if (handArea != null && handArea.snapZones != null)
-                {
-                    CardSnapZone cardZone = card.GetCurrentZone();
-                    bool belongsToHand = false;
-                    for (int s = 0; s < handArea.snapZones.Length; s++)
-                    {
-                        if (handArea.snapZones[s] != null && handArea.snapZones[s] == cardZone)
-                        {
-                            belongsToHand = true;
-                            break;
-                        }
-                    }
-
-                    if (!belongsToHand)
-                    {
-                        continue;
-                    }
-                }
 
                 if (PlaySingleSelectedCard(card))
                 {
@@ -439,24 +407,6 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
-        /// 座席インデックス指定で選択中カードを一括プレイする
-        /// </summary>
-        /// <param name="seatIndex">座席番号（0〜3）</param>
-        public void PlaySelectedCardsBySeat(int seatIndex)
-        {
-            PersonalHandArea targetArea = null;
-            if (seatControllers != null && seatIndex >= 0 && seatIndex < seatControllers.Length)
-            {
-                SeatController seat = seatControllers[seatIndex];
-                if (seat != null)
-                {
-                    targetArea = seat.GetLinkedHandArea();
-                }
-            }
-            PlaySelectedCards(targetArea);
-        }
-
-        /// <summary>
         /// 全カードの選択状態を解除し、通常位置へ復帰させる
         /// </summary>
         public void ClearAllSelections()
@@ -467,11 +417,11 @@ namespace BoardGameKit.Core
             }
             selectedCount = 0;
 
-            if (deckManager != null && deckManager.cardPool != null)
+            if (deckManager != null && deckManager.CardPool != null)
             {
-                for (int i = 0; i < deckManager.cardPool.Length; i++)
+                for (int i = 0; i < deckManager.CardPool.Length; i++)
                 {
-                    CardController card = deckManager.cardPool[i];
+                    CardController card = deckManager.CardPool[i];
                     if (card != null && card.IsSelected())
                     {
                         card.SetSelectedVisual(false);
@@ -500,15 +450,6 @@ namespace BoardGameKit.Core
         public int GetSelectedCardCount()
         {
             return selectedCount;
-        }
-
-        /// <summary>
-        /// 現在のクリック順序キューを取得する
-        /// </summary>
-        /// <returns>カードID配列</returns>
-        public int[] GetSelectedOrder()
-        {
-            return selectedOrder;
         }
 
         #endregion

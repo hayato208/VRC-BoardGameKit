@@ -369,11 +369,8 @@ namespace BoardGameKit.Editor
             CardSnapZone centerSnapZone = centerPlaySlot.GetComponent<CardSnapZone>();
             if (centerSnapZone != null)
             {
-                centerSnapZone.zoneType = CardZoneType.Field;
-                centerSnapZone.allowStack = true;
-                centerSnapZone.stackElevationOffset = 0.002f;
+                centerSnapZone.SetAllowStack(true);
                 SerializedObject soZone = new SerializedObject(centerSnapZone);
-                soZone.FindProperty("zoneType").enumValueIndex = (int)CardZoneType.Field;
                 soZone.FindProperty("allowStack").boolValue = true;
                 soZone.FindProperty("stackElevationOffset").floatValue = 0.002f;
                 soZone.ApplyModifiedProperties();
@@ -381,7 +378,7 @@ namespace BoardGameKit.Editor
             }
 
             // TableManager へのバインド同期
-            tableManager.centerPlayZone = centerSnapZone;
+            tableManager.SetCenterPlayZone(centerSnapZone);
             SerializedObject soTable = new SerializedObject(tableManager);
             soTable.FindProperty("centerPlayZone").objectReferenceValue = centerSnapZone;
             soTable.ApplyModifiedProperties();
@@ -523,7 +520,7 @@ namespace BoardGameKit.Editor
                 {
                     if (drawButtons[i] != null)
                     {
-                        drawButtons[i].deckManager = deckMgr;
+                        drawButtons[i].SetDeckManager(deckMgr);
                         SerializedObject soDrawBtn = new SerializedObject(drawButtons[i]);
                         soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
                         soDrawBtn.ApplyModifiedProperties();
@@ -596,8 +593,8 @@ namespace BoardGameKit.Editor
 
             // UdonSharpコンポーネント (Interact() で動作)
             DrawCardButton drawUdon = drawBtnObj.AddUdonSharpComponent<DrawCardButton>();
-            drawUdon.linkedHandArea = handArea;
-            if (deckMgr != null) drawUdon.deckManager = deckMgr;
+            drawUdon.SetLinkedHandArea(handArea);
+            if (deckMgr != null) drawUdon.SetDeckManager(deckMgr);
 
             SerializedObject soDrawBtn = new SerializedObject(drawUdon);
             soDrawBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
@@ -665,14 +662,10 @@ namespace BoardGameKit.Editor
 
             // UdonSharpコンポーネント (Interact() で動作)
             PlayCardButton playUdon = playBtnObj.AddUdonSharpComponent<PlayCardButton>();
-            playUdon.linkedHandArea = handArea;
-            playUdon.tableManager = tableManager;
-            playUdon.seatIndex = seatIndex;
+            playUdon.SetTableManager(tableManager);
 
             SerializedObject soPlayBtn = new SerializedObject(playUdon);
-            soPlayBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
             soPlayBtn.FindProperty("tableManager").objectReferenceValue = tableManager;
-            soPlayBtn.FindProperty("seatIndex").intValue = seatIndex;
             soPlayBtn.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(playUdon);
 
@@ -793,8 +786,8 @@ namespace BoardGameKit.Editor
                 CardController cardCtrl = cardInstance.GetComponent<CardController>();
                 if (cardCtrl != null)
                 {
-                    cardCtrl.cardId = c;
-                    cardCtrl.tableManager = tableManager;
+                    cardCtrl.SetCardId(c);
+                    cardCtrl.SetTableManager(tableManager);
                     // 初期状態: 山札位置に重なって非表示待機
                     cardCtrl.ResetToDeck(localPos, localRot);
                     UdonSharpEditorUtility.CopyProxyToUdon(cardCtrl);
@@ -804,8 +797,9 @@ namespace BoardGameKit.Editor
 
             // 4. DeckInteractHandler のアタッチ (3D直接インタラクト)
             DeckInteractHandler deckHandler = deckQuad.AddUdonSharpComponent<DeckInteractHandler>();
+            deckHandler.SetDeckManager(deckManager);
+            deckHandler.SetSeatControllers(seats);
             SerializedObject soHandler = new SerializedObject(deckHandler);
-            soHandler.FindProperty("tableManager").objectReferenceValue = tableManager;
             soHandler.FindProperty("deckManager").objectReferenceValue = deckManager;
             if (seats != null && seats.Length > 0)
             {
@@ -868,9 +862,8 @@ namespace BoardGameKit.Editor
 
             // CardSnapZone コンポーネントのアタッチ
             CardSnapZone snapZone = slotObj.AddUdonSharpComponent<CardSnapZone>();
-            snapZone.zoneType = CardZoneType.Hand;
+            snapZone.SetSlotName(name);
             SerializedObject soZone = new SerializedObject(snapZone);
-            soZone.FindProperty("zoneType").enumValueIndex = (int)CardZoneType.Hand;
             soZone.FindProperty("slotName").stringValue = name;
             soZone.FindProperty("guideRenderer").objectReferenceValue = guideQuad.GetComponent<MeshRenderer>();
             soZone.FindProperty("defaultGuideColor").colorValue = new Color(0.2f, 0.7f, 1.0f, 0.35f);
@@ -936,9 +929,9 @@ namespace BoardGameKit.Editor
             }
 
             List<CardController> currentList = new List<CardController>();
-            if (deckManager.cardPool != null)
+            if (deckManager.CardPool != null)
             {
-                foreach (var c in deckManager.cardPool)
+                foreach (var c in deckManager.CardPool)
                 {
                     if (c != null) currentList.Add(c);
                 }
@@ -972,9 +965,9 @@ namespace BoardGameKit.Editor
                 CardController cardCtrl = cardInstance.GetComponent<CardController>();
                 if (cardCtrl != null)
                 {
-                    cardCtrl.cardId = newId;
+                    cardCtrl.SetCardId(newId);
                     TableManager tm = Object.FindObjectOfType<TableManager>();
-                    if (tm != null) cardCtrl.tableManager = tm;
+                    if (tm != null) cardCtrl.SetTableManager(tm);
                     cardCtrl.ResetToDeck(deckManager.transform.localPosition, deckManager.transform.localRotation);
                     UdonSharpEditorUtility.CopyProxyToUdon(cardCtrl);
                     currentList.Add(cardCtrl);
@@ -1132,16 +1125,16 @@ namespace BoardGameKit.Editor
             if (targetDeck == null)
             {
                 targetDeck = Object.FindObjectOfType<DeckManager>();
-                if (targetDeck != null && targetDeck.cardPool != null)
+                if (targetDeck != null && targetDeck.CardPool != null)
                 {
-                    newPoolCount = targetDeck.cardPool.Length;
+                    newPoolCount = targetDeck.CardPool.Length;
                 }
             }
         }
 
         private void SyncSelectionFlags()
         {
-            int count = (targetDeck != null && targetDeck.cardPool != null) ? targetDeck.cardPool.Length : 0;
+            int count = (targetDeck != null && targetDeck.CardPool != null) ? targetDeck.CardPool.Length : 0;
             if (selectionFlags == null || selectionFlags.Length != count)
             {
                 selectionFlags = new bool[count];
@@ -1164,9 +1157,9 @@ namespace BoardGameKit.Editor
             targetDeck = (DeckManager)EditorGUILayout.ObjectField("Target Deck", targetDeck, typeof(DeckManager), true);
             if (targetDeck != prevDeck)
             {
-                if (targetDeck != null && targetDeck.cardPool != null)
+                if (targetDeck != null && targetDeck.CardPool != null)
                 {
-                    newPoolCount = targetDeck.cardPool.Length;
+                    newPoolCount = targetDeck.CardPool.Length;
                 }
                 SyncSelectionFlags();
             }
@@ -1188,7 +1181,7 @@ namespace BoardGameKit.Editor
             EditorGUILayout.Space(8);
 
             // 2. 山札プール枚数の増減
-            int currentPoolCount = (targetDeck.cardPool != null) ? targetDeck.cardPool.Length : 0;
+            int currentPoolCount = (targetDeck.CardPool != null) ? targetDeck.CardPool.Length : 0;
             EditorGUILayout.BeginVertical("box");
             EditorGUILayout.LabelField("【1. 山札プール総数の変更】", EditorStyles.boldLabel);
             EditorGUILayout.LabelField($"現在のプール枚数: {currentPoolCount} 枚", EditorStyles.label);
@@ -1224,9 +1217,9 @@ namespace BoardGameKit.Editor
             bulkBackTex = (Texture2D)EditorGUILayout.ObjectField("共通 裏面画像", bulkBackTex, typeof(Texture2D), false);
             if (GUILayout.Button("全カードの裏面を一括統一", GUILayout.Width(170)))
             {
-                if (bulkBackTex != null && targetDeck.cardPool != null)
+                if (bulkBackTex != null && targetDeck.CardPool != null)
                 {
-                    foreach (var card in targetDeck.cardPool)
+                    foreach (var card in targetDeck.CardPool)
                     {
                         if (card != null)
                         {
@@ -1234,7 +1227,7 @@ namespace BoardGameKit.Editor
                         }
                     }
                     UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
-                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 全 {targetDeck.cardPool.Length} 枚の裏面を統一画像に更新しました！</color>");
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 全 {targetDeck.CardPool.Length} 枚の裏面を統一画像に更新しました！</color>");
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -1244,9 +1237,9 @@ namespace BoardGameKit.Editor
             bulkFrontTex = (Texture2D)EditorGUILayout.ObjectField("共通 表面画像", bulkFrontTex, typeof(Texture2D), false);
             if (GUILayout.Button("全カードの表面を一括統一", GUILayout.Width(170)))
             {
-                if (bulkFrontTex != null && targetDeck.cardPool != null)
+                if (bulkFrontTex != null && targetDeck.CardPool != null)
                 {
-                    foreach (var card in targetDeck.cardPool)
+                    foreach (var card in targetDeck.CardPool)
                     {
                         if (card != null)
                         {
@@ -1254,7 +1247,7 @@ namespace BoardGameKit.Editor
                         }
                     }
                     UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(UnityEditor.SceneManagement.EditorSceneManager.GetActiveScene());
-                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 全 {targetDeck.cardPool.Length} 枚の表面を統一画像に更新しました！</color>");
+                    Debug.Log($"<color=#00FF00><b>[VRC-BoardGameKit]</b> 全 {targetDeck.CardPool.Length} 枚の表面を統一画像に更新しました！</color>");
                 }
             }
             EditorGUILayout.EndHorizontal();
@@ -1294,15 +1287,15 @@ namespace BoardGameKit.Editor
                     // 名前昇順でソート
                     droppedTextures.Sort((a, b) => string.Compare(a.name, b.name, System.StringComparison.OrdinalIgnoreCase));
 
-                    if (droppedTextures.Count > 0 && targetDeck.cardPool != null)
+                    if (droppedTextures.Count > 0 && targetDeck.CardPool != null)
                     {
                         int applyCount = 0;
                         for (int i = 0; i < droppedTextures.Count; i++)
                         {
                             int targetIdx = dragDropStartId + i;
-                            if (targetIdx < targetDeck.cardPool.Length && targetDeck.cardPool[targetIdx] != null)
+                            if (targetIdx < targetDeck.CardPool.Length && targetDeck.CardPool[targetIdx] != null)
                             {
-                                CardTableBuilder.SetCardTextures(targetDeck.cardPool[targetIdx], droppedTextures[i], null);
+                                CardTableBuilder.SetCardTextures(targetDeck.CardPool[targetIdx], droppedTextures[i], null);
                                 applyCount++;
                             }
                         }
@@ -1341,14 +1334,14 @@ namespace BoardGameKit.Editor
             selectedFrontTex = (Texture2D)EditorGUILayout.ObjectField("選択用 表面画像", selectedFrontTex, typeof(Texture2D), false);
             if (GUILayout.Button("選択カードの表面に一括適用", GUILayout.Width(170)))
             {
-                if (selectedFrontTex != null && targetDeck.cardPool != null)
+                if (selectedFrontTex != null && targetDeck.CardPool != null)
                 {
                     int count = 0;
-                    for (int i = 0; i < targetDeck.cardPool.Length; i++)
+                    for (int i = 0; i < targetDeck.CardPool.Length; i++)
                     {
-                        if (i < selectionFlags.Length && selectionFlags[i] && targetDeck.cardPool[i] != null)
+                        if (i < selectionFlags.Length && selectionFlags[i] && targetDeck.CardPool[i] != null)
                         {
-                            CardTableBuilder.SetCardTextures(targetDeck.cardPool[i], selectedFrontTex, null);
+                            CardTableBuilder.SetCardTextures(targetDeck.CardPool[i], selectedFrontTex, null);
                             count++;
                         }
                     }
@@ -1363,14 +1356,14 @@ namespace BoardGameKit.Editor
             selectedBackTex = (Texture2D)EditorGUILayout.ObjectField("選択用 裏面画像", selectedBackTex, typeof(Texture2D), false);
             if (GUILayout.Button("選択カードの裏面に一括適用", GUILayout.Width(170)))
             {
-                if (selectedBackTex != null && targetDeck.cardPool != null)
+                if (selectedBackTex != null && targetDeck.CardPool != null)
                 {
                     int count = 0;
-                    for (int i = 0; i < targetDeck.cardPool.Length; i++)
+                    for (int i = 0; i < targetDeck.CardPool.Length; i++)
                     {
-                        if (i < selectionFlags.Length && selectionFlags[i] && targetDeck.cardPool[i] != null)
+                        if (i < selectionFlags.Length && selectionFlags[i] && targetDeck.CardPool[i] != null)
                         {
-                            CardTableBuilder.SetCardTextures(targetDeck.cardPool[i], null, selectedBackTex);
+                            CardTableBuilder.SetCardTextures(targetDeck.CardPool[i], null, selectedBackTex);
                             count++;
                         }
                     }
@@ -1388,11 +1381,11 @@ namespace BoardGameKit.Editor
             EditorGUILayout.LabelField($"【5. カード個別設定一覧 (全 {currentPoolCount} 枚)】", EditorStyles.boldLabel);
 
             cardListScrollPos = EditorGUILayout.BeginScrollView(cardListScrollPos, GUILayout.Height(300));
-            if (targetDeck.cardPool != null)
+            if (targetDeck.CardPool != null)
             {
-                for (int i = 0; i < targetDeck.cardPool.Length; i++)
+                for (int i = 0; i < targetDeck.CardPool.Length; i++)
                 {
-                    CardController card = targetDeck.cardPool[i];
+                    CardController card = targetDeck.CardPool[i];
                     if (card == null) continue;
 
                     MeshRenderer mr = card.GetComponent<MeshRenderer>();

@@ -15,23 +15,23 @@ namespace BoardGameKit.Core
     {
         [Header("Card Identity")]
         [Tooltip("カードの一意識別ID (0〜N-1)")]
-        public int cardId = 0;
+        [SerializeField] private int cardId = 0;
 
         [Header("System References")]
         [Tooltip("テーブル統括マネージャーへの参照")]
-        public TableManager tableManager;
+        [SerializeField] private TableManager tableManager;
 
         [Header("Selection Visual")]
         [Tooltip("選択時の浮上オフセット量 (m)")]
-        public float selectionElevation = 0.15f;
+        [SerializeField] private float selectionElevation = 0.15f;
 
         [Header("Physics Settings")]
         [Tooltip("手で持っている間も isKinematic = true を維持するか（暴れ・ガタつき完全防止）")]
-        public bool keepKinematicWhileHeld = true;
+        [SerializeField] private bool keepKinematicWhileHeld = true;
 
         [Header("Snap Threshold")]
         [Tooltip("スロット中心とカード中心の最大吸着許容距離 (m) ※カード幅0.7mに対し0.45m以内＝十分な重なりが必要")]
-        public float maxSnapDistance = 0.45f;
+        [SerializeField] private float maxSnapDistance = 0.45f;
 
         // --- 実行時動的ステート（シリアライズ除外・カプセル化） ---
         private bool isSelected = false;
@@ -73,6 +73,10 @@ namespace BoardGameKit.Core
 
         #region Tell, Don't Ask 外部公開命令 (Commands) ＆ カプセル化アクセサ (Getters)
 
+        public int CardId => cardId;
+        public void SetCardId(int id) => cardId = id;
+        public void SetTableManager(TableManager tm) => tableManager = tm;
+
         /// <summary>
         /// 現在収まっているスナップ枠を取得する（読み取り専用Getter）
         /// </summary>
@@ -87,22 +91,6 @@ namespace BoardGameKit.Core
         public bool IsSelected()
         {
             return isSelected;
-        }
-
-        /// <summary>
-        /// 現在手札スロットに収まっているかを判定する（抽象モデル）
-        /// </summary>
-        public bool IsInHand()
-        {
-            return currentZone != null && currentZone.IsHandZone();
-        }
-
-        /// <summary>
-        /// 現在場のプレイエリアに収まっているかを判定する（抽象モデル）
-        /// </summary>
-        public bool IsOnField()
-        {
-            return currentZone != null && currentZone.IsFieldZone();
         }
 
         /// <summary>
@@ -128,16 +116,16 @@ namespace BoardGameKit.Core
             this.isSelected = false;
 
             SnapTo(targetPosition, targetRotation);
-            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ移動・吸着し基準位置を確定更新しました: {gameObject.name} -> {(zone != null ? zone.slotName : "None")} (Pos: {targetPosition})");
+            Debug.Log($"[VRC-BoardGameKit] [CardController] カードがゾーンへ移動・吸着し基準位置を確定更新しました: {gameObject.name} -> {(zone != null ? zone.SlotName : "None")} (Pos: {targetPosition})");
         }
 
         /// <summary>
-        /// 外部のスナップ枠（CardSnapZone）等から、目標姿勢への吸着を命じられたときの処理（Tell）。
+        /// 目標姿勢への吸着内部処理。
         /// カード自身が Rigidbody や Transform を制御して指定位置へ整列する。
         /// </summary>
         /// <param name="targetPosition">目標ワールド座標</param>
         /// <param name="targetRotation">目標ワールド回転</param>
-        public void SnapTo(Vector3 targetPosition, Quaternion targetRotation)
+        private void SnapTo(Vector3 targetPosition, Quaternion targetRotation)
         {
             normalPosition = targetPosition;
             normalRotation = targetRotation;
@@ -312,7 +300,7 @@ namespace BoardGameKit.Core
             {
                 CardSnapZone zone = candidateBuffer[i];
                 if (zone == null) continue;
-                if (zone.IsOccupied() && !zone.allowStack) continue;
+                if (zone.IsOccupied() && !zone.AllowStack) continue;
 
                 // カード中心とスロット中心の平面/空間距離を計算
                 float distSqr = (zone.transform.position - myCenter).sqrMagnitude;

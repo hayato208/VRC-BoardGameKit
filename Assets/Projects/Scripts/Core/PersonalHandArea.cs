@@ -33,10 +33,13 @@ namespace BoardGameKit.Core
 
         [Header("Slot References")]
         [Tooltip("管理下の大判 CardSnapZone 配列")]
-        public CardSnapZone[] snapZones;
+        [SerializeField] private CardSnapZone[] snapZones;
 
         [Tooltip("スロット群をまとめるルートGameObject（非表示/表示トグル用）")]
         [SerializeField] private GameObject slotContainer;
+
+        public CardSnapZone[] SnapZones => snapZones;
+        public void SetSnapZones(CardSnapZone[] zones) => snapZones = zones;
 
         private void Start()
         {
@@ -79,15 +82,6 @@ namespace BoardGameKit.Core
                 }
             }
             return null;
-        }
-
-        /// <summary>
-        /// 指定インデックスのスロットを取得
-        /// </summary>
-        public CardSnapZone GetSlotAt(int index)
-        {
-            if (snapZones == null || index < 0 || index >= snapZones.Length) return null;
-            return snapZones[index];
         }
 
         /// <summary>

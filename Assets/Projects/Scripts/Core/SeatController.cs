@@ -94,7 +94,7 @@ namespace BoardGameKit.Core
         /// <summary>
         /// プレイエリアに参加登録
         /// </summary>
-        public void JoinSeat(VRCPlayerApi player)
+        private void JoinSeat(VRCPlayerApi player)
         {
             if (player == null || !player.isLocal) return;
 
@@ -112,7 +112,7 @@ namespace BoardGameKit.Core
         /// <summary>
         /// プレイエリアから離席
         /// </summary>
-        public void LeaveSeat(VRCPlayerApi player)
+        private void LeaveSeat(VRCPlayerApi player)
         {
             if (player == null || !player.isLocal) return;
 
