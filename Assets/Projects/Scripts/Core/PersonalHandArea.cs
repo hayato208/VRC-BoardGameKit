@@ -145,6 +145,24 @@ namespace BoardGameKit.Core
             }
         }
 
+        /// <summary>
+        /// 現在手札スロットに収まっている（占有されている）カードの総枚数を取得します。
+        /// </summary>
+        public int GetHeldCardCount()
+        {
+            if (snapZones == null) return 0;
+
+            int count = 0;
+            for (int i = 0; i < snapZones.Length; i++)
+            {
+                if (snapZones[i] != null && snapZones[i].IsOccupied())
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
+
         // --- 幾何計算用ゲッター（エディタ拡張連携） ---
         public float GetRadius() => radius;
         public float GetAngleStep() => angleStep;

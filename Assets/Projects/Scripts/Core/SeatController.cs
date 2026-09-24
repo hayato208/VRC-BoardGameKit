@@ -273,5 +273,6 @@ namespace BoardGameKit.Core
         public int GetSeatedPlayerId() => seatedPlayerId;
         public bool IsOccupied() => seatedPlayerId != -1;
         public PersonalHandArea GetLinkedHandArea() => linkedHandArea;
+        public TableManager GetTableManager() => tableManager;
     }
 }

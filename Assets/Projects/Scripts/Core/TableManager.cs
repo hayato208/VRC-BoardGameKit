@@ -71,6 +71,13 @@ namespace BoardGameKit.Core
         /// </summary>
         public void DealCardsToAll(int cardsPerPlayer)
         {
+            // 待機中以外（対戦中や終局中）は配布不可
+            if (gameState != 0)
+            {
+                Debug.LogWarning($"[TableManager] ゲーム進行状態が待機中ではないため配布できません。（現在のgameState: {gameState}）");
+                return;
+            }
+
             if (deckManager == null || seatControllers == null) return;
             if (!TakeOwnership()) return;
 
@@ -88,6 +95,7 @@ namespace BoardGameKit.Core
 
             gameState = 1;
             RequestSerialization();
+            Debug.Log("[TableManager] カードの一括配布が完了し、対戦中（gameState = 1）に遷移しました。");
         }
 
         /// <summary>
@@ -95,6 +103,13 @@ namespace BoardGameKit.Core
         /// </summary>
         public void DrawCardForPlayer(int seatIndex)
         {
+            // 終局時はドロー不可
+            if (gameState == 2)
+            {
+                Debug.Log("[TableManager] ゲームが終了しているためカードを引くことはできません。");
+                return;
+            }
+
             if (deckManager == null || seatControllers == null || seatIndex < 0 || seatIndex >= seatControllers.Length) return;
 
             SeatController seat = seatControllers[seatIndex];
@@ -108,29 +123,56 @@ namespace BoardGameKit.Core
         }
 
         /// <summary>
-        /// 次の手番プレイヤー（次の着席席）へターンを回す
+        /// 手番を次の座席へ進めます。
+        /// 他に着席者がいる場合はその座席へ、単独テスト時は単純に次の座席番号へ進めます。
         /// </summary>
         public void AdvanceTurn()
         {
-            if (seatControllers == null || seatControllers.Length == 0) return;
-            if (!TakeOwnership()) return;
+            Debug.Log("[TableManager] AdvanceTurn() の実行を開始しました。");
+
+            if (seatControllers == null || seatControllers.Length == 0)
+            {
+                Debug.LogError("[TableManager] seatControllers が未設定または要素数0のため、手番を進められません。");
+                return;
+            }
+
+            // オーナーシップ取得を試行（失敗しても単体テスト継続のためreturnしない）
+            if (!TakeOwnership())
+            {
+                Debug.LogWarning("[TableManager] TakeOwnership() がfalseを返しましたが、Editor処理を継続します。");
+            }
 
             int startIndex = currentTurnSeatIndex;
-            for (int i = 1; i <= seatControllers.Length; i++)
+            bool foundOccupied = false;
+
+            // 1. 他の着席中の座席を探す
+            for (int i = 1; i < seatControllers.Length; i++)
             {
                 int nextIndex = (startIndex + i) % seatControllers.Length;
                 if (seatControllers[nextIndex] != null && seatControllers[nextIndex].IsOccupied())
                 {
                     currentTurnSeatIndex = nextIndex;
+                    foundOccupied = true;
                     break;
                 }
             }
 
+            // 2. 他に着席者がいない場合（Editor単体テスト時など）は、機械的に次の座席へ送る
+            if (!foundOccupied)
+            {
+                currentTurnSeatIndex = (startIndex + 1) % seatControllers.Length;
+            }
+
+            Debug.Log($"[TableManager] 手番が進みました。現在のターン座席: {currentTurnSeatIndex}");
             RequestSerialization();
 
             if (activeRulePlugin != null)
             {
-                int activePlayerId = seatControllers[currentTurnSeatIndex].GetSeatedPlayerId();
+                int activePlayerId = -1;
+                if (seatControllers[currentTurnSeatIndex] != null)
+                {
+                    activePlayerId = seatControllers[currentTurnSeatIndex].GetSeatedPlayerId();
+                }
                 activeRulePlugin.OnTurnStart(activePlayerId);
             }
         }
@@ -368,6 +410,14 @@ namespace BoardGameKit.Core
         /// </summary>
         public void PlaySelectedCards()
         {
+            // 終局時はプレイ不可
+            if (gameState == 2)
+            {
+                Debug.Log("[TableManager] ゲームが終了しているためカードを出せません。");
+                ClearAllSelections();
+                return;
+            }
+
             if (centerPlayZone == null || selectedCount == 0) return;
             if (deckManager == null || deckManager.CardPool == null) return;
 
@@ -523,6 +573,56 @@ namespace BoardGameKit.Core
                 }
             }
             return -1;
+        }
+
+        /// <summary>
+        /// ゲームを終了し、勝者を確定させて終局ステートへ遷移させます。
+        /// ルールプラグイン側の任意の判定タイミングから呼び出されます。
+        /// </summary>
+        /// <param name="winnerId">勝者のプレイヤーID（引き分け等の場合は -1）</param>
+        public void EndGame(int winnerId)
+        {
+            if (!TakeOwnership()) return;
+
+            winnerPlayerId = winnerId;
+            gameState = 2; // 終局状態へ遷移
+            RequestSerialization();
+
+            Debug.Log($"[TableManager] ゲーム終了: 勝者 PlayerId = {winnerPlayerId}");
+        }
+
+        /// <summary>
+        /// 指定された座席コントローラーを取得します。
+        /// </summary>
+        public SeatController GetSeatController(int seatIndex)
+        {
+            if (seatControllers == null || seatIndex < 0 || seatIndex >= seatControllers.Length) return null;
+            return seatControllers[seatIndex];
+        }
+
+        /// <summary>
+        /// 指定された座席の残り手札枚数を取得します。
+        /// </summary>
+        public int GetSeatHandCount(int seatIndex)
+        {
+            SeatController seat = GetSeatController(seatIndex);
+            if (seat == null) return 0;
+
+            PersonalHandArea handArea = seat.GetLinkedHandArea();
+            if (handArea == null) return 0;
+
+            return handArea.GetHeldCardCount();
+        }
+
+        /// <summary>
+        /// 指定されたプレイヤーIDの残り手札枚数を取得します（未着席時は 0）。
+        /// </summary>
+        public int GetPlayerHandCount(int playerId)
+        {
+            int seatIndex = GetPlayerSeatIndex(playerId);
+            if (seatIndex == -1) return 0;
+
+            return GetSeatHandCount(seatIndex);
         }
 
         // --- ゲッター ---

@@ -13,12 +13,16 @@ namespace BoardGameKit.Core
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class DeckInteractHandler : UdonSharpBehaviour
     {
+        [Tooltip("全体進行を司るTableManagerへの参照")]
+        [SerializeField] private TableManager tableManager;
+
         [Tooltip("山札マネージャーへの直接参照")]
         [SerializeField] private DeckManager deckManager;
 
         [Tooltip("各座席コントローラーへの参照")]
         [SerializeField] private SeatController[] seatControllers;
 
+        public void SetTableManager(TableManager tm) => tableManager = tm;
         public void SetDeckManager(DeckManager dm) => deckManager = dm;
         public void SetSeatControllers(SeatController[] sc) => seatControllers = sc;
 
@@ -71,15 +75,29 @@ namespace BoardGameKit.Core
                 return;
             }
 
-            // 着席しているプレイヤーの手札エリアへドロー処理を一括委譲 (Tell, Don't Ask & SSOT)
-            PersonalHandArea handArea = mySeatCtrl.GetLinkedHandArea();
-            if (handArea != null && deckManager != null)
+            // 着席しているプレイヤーのドロー処理をTableManager経由で実行 (進行管理・ルール判定の集約)
+            TableManager tm = tableManager;
+            if (tm == null && mySeatCtrl != null)
             {
-                handArea.TryDrawCard(deckManager);
+                tm = mySeatCtrl.GetTableManager();
+            }
+
+            if (tm != null)
+            {
+                tm.DrawCardForPlayer(mySeat);
             }
             else
             {
-                Debug.LogWarning($"[VRC-BoardGameKit] [DeckInteractHandler] handArea または deckManager が未設定です: Seat {mySeat}");
+                // フォールバック: TableManager未設定環境用の直接ドロー
+                PersonalHandArea handArea = mySeatCtrl.GetLinkedHandArea();
+                if (handArea != null && deckManager != null)
+                {
+                    handArea.TryDrawCard(deckManager);
+                }
+                else
+                {
+                    Debug.LogWarning($"[VRC-BoardGameKit] [DeckInteractHandler] handArea または deckManager が未設定です: Seat {mySeat}");
+                }
             }
         }
     }

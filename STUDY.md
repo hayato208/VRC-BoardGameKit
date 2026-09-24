@@ -1345,6 +1345,37 @@ AIが自律的に開発を進める中で、プロンプトの指示を過剰に
 *   **フォールバック設計（KISS & 防護プログラミング）**:
     *   `DrawCardButton` / `DeckInteractHandler` 共に、`tableManager` が Inspector 上で未設定の場合でも `SeatController.GetTableManager()` を自動解決し、それでも取得できない単体テスト環境では直接 `TryDrawCard` を呼ぶフォールバックを備えているため、後方互換性・環境依存の耐性が極めて高い。
 
+---
+
+## 28. Test Project先行差分の本プロジェクト完全吸収とTools自動生成アーキテクチャ（T51）
+
+### ① 背景と課題
+*   開発スピードを最大化するため、検証用Unity環境である `test/Test Project` 上でゲームステート進行・終局・手番制御（T49）の実装および動作検証を先行して実施していた。
+*   本プロジェクトは「Toolsメニューからの自動生成（`CardTableBuilder.cs`）によって常にクリーンな最新環境を再現できること」を基本原則（SSOT）としているため、先行したロジック変更および生成処理の差分を本プロジェクトのコードベースへ完全吸収する必要があった。
+
+### ② 吸収・同期した主要差分
+1.  **ゲーム進行・終局・手札集計ファサードAPI（`TableManager.cs`）**:
+    *   `DealCardsToAll`: `gameState != 0` 時の配布ガード（対戦中・終局中の配り直し遮断）。
+    *   `DrawCardForPlayer` / `PlaySelectedCards`: `gameState == 2`（終局）時のドロー・プレイ遮断。
+    *   `AdvanceTurn`: 単独テスト時（他着席者不在）でも機械的に次の座席番号へ送るフォールバックを実装。
+    *   `EndGame(winnerId)`: 勝者確定および `gameState = 2` 終局遷移APIの実装。
+    *   `GetSeatHandCount(seatIndex)` / `GetPlayerHandCount(playerId)`: ルールプラグイン側から手札枚数を安全に参照できるファサードAPIの提供。
+2.  **ドロー処理の委譲・集約（`DeckInteractHandler.cs` / `DrawCardButton.cs`）**:
+    *   `tableManager` 参照の追加と、`tableManager.DrawCardForPlayer()` 経由でのドロー実行。
+3.  **手札スロット占有数集計（`PersonalHandArea.cs`）**:
+    *   `GetHeldCardCount()` による占有スロット実数のカウント。
+4.  **ルールプラグインでの終局・手番連携（`SamplePairOnlyPlugin.cs`）**:
+    *   2枚出し完了後（`OnCardsPlayed`）に操作プレイヤーの手札枚数を参照し、0枚であれば `EndGame(playerId)` を呼び出し、残存していれば `AdvanceTurn()` で次手番へ自動移行。
+5.  **Tools自動生成の完全拡張（`CardTableBuilder.cs`）**:
+    *   `BuildDynamicCardField` 実行時、各席の `DrawCardButton` および山札 `DeckInteractHandler` に対する `tableManager` の自動バインド。
+    *   山札の対角位置（X: 1.10m, Y: 0.60m）へ、クリムゾンレッドの物理押しボタン `Button_ResetGame`（`TableActionTrigger` アタッチ済み）を標準配置。
+    *   Toolsメニューに `Add Reset Button to Scene (リセットボタン新設)` を追加し、既存シーンへの追設も1クリックで可能化。
+    *   `[InitializeOnLoadMethod] AutoEnsureResetButtonInScene` により、既存フィールドが存在する場合のリセットボタン自動補完を保証。
+
+### ③ 品質検証結果
+*   Test Project内の `Assembly-CSharp.csproj`（Runtime / U#コード）および `Assembly-CSharp-Editor.csproj`（Editor / Builderコード）の双方に対し、`dotnet build` による厳格な事前コンパイル検証を実施し、**0 エラー** を確認。
+
+
 
 
 

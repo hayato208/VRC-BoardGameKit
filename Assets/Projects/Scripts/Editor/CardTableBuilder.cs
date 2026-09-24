@@ -11,6 +11,7 @@ using UdonSharpEditor;
 using BoardGameKit.Core;
 using System.IO;
 using System.Collections.Generic;
+using UnityEditor.SceneManagement;
 
 namespace BoardGameKit.Editor
 {
@@ -521,12 +522,14 @@ namespace BoardGameKit.Editor
                     if (drawButtons[i] != null)
                     {
                         drawButtons[i].SetDeckManager(deckMgr);
+                        drawButtons[i].SetTableManager(tableManager);
                         if (seatControllers != null && i < seatControllers.Length)
                         {
                             drawButtons[i].SetLinkedSeat(seatControllers[i]);
                         }
                         SerializedObject soDrawBtn = new SerializedObject(drawButtons[i]);
                         soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+                        soDrawBtn.FindProperty("tableManager").objectReferenceValue = tableManager;
                         if (seatControllers != null && i < seatControllers.Length)
                         {
                             soDrawBtn.FindProperty("linkedSeat").objectReferenceValue = seatControllers[i];
@@ -552,8 +555,14 @@ namespace BoardGameKit.Editor
                 UdonSharpEditorUtility.CopyProxyToUdon(deckMgr);
             }
 
+            // 5. ゲーム初期化用リセットボタン (Button_ResetGame) の生成 (山札の対面X: 1.10mに配置)
+            Vector3 resetBtnPos = new Vector3(1.10f, config.slotHeightY - 0.05f, 0f);
+            Quaternion resetBtnRot = Quaternion.Euler(20f, 0, 0);
+            GameObject resetBtnObj = CreateResetButtonObject("Button_ResetGame", resetBtnPos, resetBtnRot, tableManager);
+            resetBtnObj.transform.SetParent(root.transform, false);
+
             Selection.activeGameObject = root;
-            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / カードプール {config.poolCardCount} 枚 / 半径 {config.radius:F2}m / 手元ドローUI完備) の構築が完了しました！</color>");
+            Debug.Log($"<color=#00FF99>[VRC-BoardGameKit] プレイヤー包囲型円弧スロット空間 (手札 {config.slotCount} 枠 / カードプール {config.poolCardCount} 枚 / 半径 {config.radius:F2}m / 手元ドローUI・リセットボタン完備) の構築が完了しました！</color>");
         }
 
 
@@ -618,12 +627,17 @@ namespace BoardGameKit.Editor
             DrawCardButton drawUdon = drawBtnObj.AddUdonSharpComponent<DrawCardButton>();
             drawUdon.SetLinkedHandArea(handArea);
             if (deckMgr != null) drawUdon.SetDeckManager(deckMgr);
+            if (tableManager != null) drawUdon.SetTableManager(tableManager);
 
             SerializedObject soDrawBtn = new SerializedObject(drawUdon);
             soDrawBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
             if (deckMgr != null)
             {
                 soDrawBtn.FindProperty("deckManager").objectReferenceValue = deckMgr;
+            }
+            if (tableManager != null)
+            {
+                soDrawBtn.FindProperty("tableManager").objectReferenceValue = tableManager;
             }
             soDrawBtn.ApplyModifiedProperties();
             UdonSharpEditorUtility.CopyProxyToUdon(drawUdon);
@@ -829,8 +843,13 @@ namespace BoardGameKit.Editor
             DeckInteractHandler deckHandler = deckQuad.AddUdonSharpComponent<DeckInteractHandler>();
             deckHandler.SetDeckManager(deckManager);
             deckHandler.SetSeatControllers(seats);
+            if (tableManager != null) deckHandler.SetTableManager(tableManager);
             SerializedObject soHandler = new SerializedObject(deckHandler);
             soHandler.FindProperty("deckManager").objectReferenceValue = deckManager;
+            if (tableManager != null)
+            {
+                soHandler.FindProperty("tableManager").objectReferenceValue = tableManager;
+            }
             if (seats != null && seats.Length > 0)
             {
                 SerializedProperty propSeats = soHandler.FindProperty("seatControllers");
@@ -867,6 +886,159 @@ namespace BoardGameKit.Editor
             }
 
             return deckRoot;
+        }
+
+        public static GameObject CreateResetButtonObject(string name, Vector3 localPos, Quaternion localRot, TableManager tableManager)
+        {
+            GameObject btnRoot = new GameObject(name);
+            btnRoot.transform.localPosition = localPos;
+            btnRoot.transform.localRotation = localRot;
+            btnRoot.transform.localScale = Vector3.one;
+
+            // 押しボタン用Cubeメッシュ (20cm x 5cm x 15cm)
+            GameObject meshObj = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            meshObj.name = "ButtonMesh";
+            meshObj.transform.SetParent(btnRoot.transform, false);
+            meshObj.transform.localPosition = Vector3.zero;
+            meshObj.transform.localRotation = Quaternion.identity;
+            meshObj.transform.localScale = new Vector3(0.20f, 0.05f, 0.15f);
+            Object.DestroyImmediate(meshObj.GetComponent<Collider>());
+
+            // マテリアル設定（リセット用クリムゾンレッド）
+            string materialsDir = "Assets/Projects/Components/Materials";
+            string resetMatPath = $"{materialsDir}/Button_Reset_Crimson.mat";
+            Shader unlitShader = Shader.Find("Unlit/Color");
+            if (unlitShader == null) unlitShader = Shader.Find("Standard");
+
+            Material resetMat = AssetDatabase.LoadAssetAtPath<Material>(resetMatPath);
+            if (resetMat == null)
+            {
+                resetMat = new Material(unlitShader);
+                resetMat.color = new Color(0.75f, 0.15f, 0.15f, 1.0f); // 鮮やかなクリムゾンレッド
+                AssetDatabase.CreateAsset(resetMat, resetMatPath);
+            }
+            meshObj.GetComponent<MeshRenderer>().sharedMaterial = resetMat;
+
+            // BoxCollider (IsTrigger = true で物理引っ掛かり防止)
+            BoxCollider col = btnRoot.AddComponent<BoxCollider>();
+            col.size = new Vector3(0.20f, 0.05f, 0.15f);
+            col.center = Vector3.zero;
+            col.isTrigger = true;
+
+            // TableActionTrigger コンポーネントのアタッチ
+            TableActionTrigger trigger = btnRoot.AddUdonSharpComponent<TableActionTrigger>();
+            trigger.SetTableManager(tableManager);
+            trigger.SetActionType(TableActionType.ResetGame);
+
+            SerializedObject soTrigger = new SerializedObject(trigger);
+            soTrigger.FindProperty("tableManager").objectReferenceValue = tableManager;
+            soTrigger.FindProperty("actionType").enumValueIndex = (int)TableActionType.ResetGame;
+            soTrigger.FindProperty("cooldownSeconds").floatValue = 1.0f;
+            soTrigger.FindProperty("requireMasterOnly").boolValue = false;
+            soTrigger.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(trigger);
+
+            UdonBehaviour udonBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(trigger);
+            if (udonBacking != null)
+            {
+                udonBacking.interactText = "ゲームをリセット (Reset)";
+            }
+
+            // 3D TextMeshPro（上面に配置）
+            TMP_FontAsset jpFont = AssetDatabase.LoadAssetAtPath<TMP_FontAsset>("Assets/Projects/Components/Fonts/NotoSansJP-Medium SDF.asset");
+            GameObject textObj = new GameObject("Text");
+            textObj.transform.SetParent(btnRoot.transform, false);
+            textObj.transform.localPosition = new Vector3(0f, 0.026f, 0f); // 上面26mm
+            textObj.transform.localRotation = Quaternion.Euler(90f, 0f, 0f); // 上向き
+            textObj.transform.localScale = Vector3.one;
+
+            TextMeshPro tmp = textObj.AddComponent<TextMeshPro>();
+            if (jpFont != null)
+            {
+                tmp.font = jpFont;
+                tmp.fontSharedMaterial = jpFont.material;
+            }
+            tmp.text = "RESET\n<size=70%>リセット</size>";
+            tmp.alignment = TextAlignmentOptions.Center;
+            tmp.color = Color.white;
+            tmp.enableAutoSizing = true;
+            tmp.fontSizeMin = 0.5f;
+            tmp.fontSizeMax = 2.0f;
+            RectTransform rt = textObj.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                rt.sizeDelta = new Vector2(0.20f, 0.15f);
+            }
+
+            EditorUtility.SetDirty(btnRoot);
+            return btnRoot;
+        }
+
+        [MenuItem("Tools/VRC-BoardGameKit/Add Reset Button to Scene (リセットボタン新設)", false, 11)]
+        public static void AddResetButtonToScene()
+        {
+            GameObject fieldRoot = GameObject.Find("DynamicCardField_4Players");
+            if (fieldRoot == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] シーン内に 'DynamicCardField_4Players' が見つかりません。");
+                return;
+            }
+
+            TableManager tm = fieldRoot.GetComponentInChildren<TableManager>();
+            if (tm == null)
+            {
+                Debug.LogError("[VRC-BoardGameKit] 'DynamicCardField_4Players' 配下に TableManager が見つかりません。");
+                return;
+            }
+
+            // 既存のリセットボタンがあれば削除
+            Transform existingBtn = fieldRoot.transform.Find("Button_ResetGame");
+            if (existingBtn != null)
+            {
+                Undo.DestroyObjectImmediate(existingBtn.gameObject);
+            }
+
+            // 山札と対称の位置（X: 1.10m, Y: 0.65m, Z: 0）に配置
+            Vector3 btnPos = new Vector3(1.10f, 0.65f, 0f);
+            Quaternion btnRot = Quaternion.Euler(20f, 0, 0);
+
+            GameObject resetBtn = CreateResetButtonObject("Button_ResetGame", btnPos, btnRot, tm);
+            resetBtn.transform.SetParent(fieldRoot.transform, false);
+            Undo.RegisterCreatedObjectUndo(resetBtn, "Add Reset Button");
+
+            EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+            EditorSceneManager.SaveOpenScenes();
+
+            Selection.activeGameObject = resetBtn;
+            Debug.Log("<color=#00FF99>[VRC-BoardGameKit] 'DynamicCardField_4Players' 配下に 'Button_ResetGame' を正常に生成・保存しました！</color>");
+        }
+
+        [InitializeOnLoadMethod]
+        private static void AutoEnsureResetButtonInScene()
+        {
+            EditorApplication.delayCall += () =>
+            {
+                GameObject fieldRoot = GameObject.Find("DynamicCardField_4Players");
+                if (fieldRoot == null) return;
+
+                Transform existingBtn = fieldRoot.transform.Find("Button_ResetGame");
+                if (existingBtn != null) return; // 既に存在する場合は何もしない
+
+                TableManager tm = fieldRoot.GetComponentInChildren<TableManager>();
+                if (tm == null) return;
+
+                Vector3 btnPos = new Vector3(1.10f, 0.65f, 0f);
+                Quaternion btnRot = Quaternion.Euler(20f, 0, 0);
+
+                GameObject resetBtn = CreateResetButtonObject("Button_ResetGame", btnPos, btnRot, tm);
+                resetBtn.transform.SetParent(fieldRoot.transform, false);
+                Undo.RegisterCreatedObjectUndo(resetBtn, "Auto Ensure Reset Button");
+
+                EditorSceneManager.MarkSceneDirty(EditorSceneManager.GetActiveScene());
+                EditorSceneManager.SaveOpenScenes();
+
+                Debug.Log("<color=#00FF99>[VRC-BoardGameKit] [AutoEnsure] 'DynamicCardField_4Players' 配下に 'Button_ResetGame' を自動生成・保存しました！</color>");
+            };
         }
 
         private static GameObject CreateArcadeSnapSlot(string name, Vector3 localPos, Quaternion localRot)

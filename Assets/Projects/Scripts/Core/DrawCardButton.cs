@@ -14,6 +14,9 @@ namespace BoardGameKit.Core
     [UdonBehaviourSyncMode(BehaviourSyncMode.None)]
     public class DrawCardButton : UdonSharpBehaviour
     {
+        [Tooltip("全体進行を司るTableManagerへの参照")]
+        [SerializeField] private TableManager tableManager;
+
         [Tooltip("山札マネージャーへの参照")]
         [SerializeField] private DeckManager deckManager;
 
@@ -26,6 +29,7 @@ namespace BoardGameKit.Core
         [Tooltip("ボタン表面のラベル表示用TextMeshPro")]
         [SerializeField] private TextMeshPro buttonText;
 
+        public void SetTableManager(TableManager tm) => tableManager = tm;
         public void SetDeckManager(DeckManager dm) => deckManager = dm;
         public void SetLinkedHandArea(PersonalHandArea area) => linkedHandArea = area;
         public void SetLinkedSeat(SeatController seat) => linkedSeat = seat;
@@ -92,8 +96,23 @@ namespace BoardGameKit.Core
                 return;
             }
 
-            // 2. 手札エリアへドロー処理を一括委譲 (Tell, Don't Ask & SSOT)
-            linkedHandArea.TryDrawCard(deckManager);
+            // 2. TableManager経由でドロー処理を実行 (進行管理・ルール判定の集約)
+            TableManager tm = tableManager;
+            if (tm == null && linkedSeat != null)
+            {
+                tm = linkedSeat.GetTableManager();
+            }
+
+            int seatIndex = linkedSeat.GetSeatIndex();
+            if (tm != null && seatIndex >= 0)
+            {
+                tm.DrawCardForPlayer(seatIndex);
+            }
+            else
+            {
+                // フォールバック: TableManager未設定環境用の直接ドロー
+                linkedHandArea.TryDrawCard(deckManager);
+            }
         }
     }
 }

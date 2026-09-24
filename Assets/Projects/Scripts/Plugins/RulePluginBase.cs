@@ -47,8 +47,10 @@ namespace BoardGameKit.Plugins
         }
 
         /// <summary>
-        /// 勝利条件判定フック。
+        /// 勝利条件の検証を行います。
+        /// ルールプラグイン側で任意のタイミング（カード配置後、ターン経過後、ショーダウン時等）に呼び出して判定します。
         /// </summary>
+        /// <returns>勝者のplayerId（未決着時は -1）</returns>
         public virtual int CheckWinCondition()
         {
             return -1;
