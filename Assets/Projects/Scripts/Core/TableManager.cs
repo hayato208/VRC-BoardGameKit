@@ -309,6 +309,23 @@ namespace BoardGameKit.Core
                 {
                     currentZone.ReleaseCard(card);
                 }
+
+                // 操作プレイヤーの手札リストからカードを取り除く
+                int playerId = localPlayer != null ? localPlayer.playerId : -1;
+                int seatIndex = GetPlayerSeatIndex(playerId);
+                if (seatIndex != -1 && seatControllers != null && seatIndex < seatControllers.Length)
+                {
+                    SeatController seat = seatControllers[seatIndex];
+                    if (seat != null)
+                    {
+                        PersonalHandArea handArea = seat.GetLinkedHandArea();
+                        if (handArea != null)
+                        {
+                            handArea.RemoveCard(card);
+                        }
+                    }
+                }
+
                 return true;
             }
             else

@@ -149,6 +149,7 @@ namespace BoardGameKit.Editor
                 "Assets/Projects/Scripts/Core/CardSnapZone.cs",
                 "Assets/Projects/Scripts/Core/CardController.cs",
                 "Assets/Projects/Scripts/Core/PersonalHandArea.cs",
+                "Assets/Projects/Scripts/Core/HandScrollButton.cs",
                 "Assets/Projects/Scripts/Core/DrawCardButton.cs",
                 "Assets/Projects/Scripts/Core/PlayCardButton.cs",
                 "Assets/Projects/Scripts/Plugins/RulePluginBase.cs"
@@ -598,6 +599,164 @@ namespace BoardGameKit.Editor
                 playMat.color = new Color(0.12f, 0.42f, 0.65f, 1.0f); // 落ち着いたオーシャンブルー
                 AssetDatabase.CreateAsset(playMat, playMatPath);
             }
+
+            string scrollMatPath = $"{materialsDir}/Button_Scroll_Slate.mat";
+            Material scrollMat = AssetDatabase.LoadAssetAtPath<Material>(scrollMatPath);
+            if (scrollMat == null)
+            {
+                scrollMat = new Material(unlitShader);
+                scrollMat.color = new Color(0.25f, 0.28f, 0.35f, 1.0f); // シックなスレートグレー
+                AssetDatabase.CreateAsset(scrollMat, scrollMatPath);
+            }
+
+            // ==========================================
+            // 0. 最上段: 手札枚数表示 (HandCount_Display, Y: +0.17f)
+            // ==========================================
+            GameObject countObj = new GameObject("HandCount_Display");
+            countObj.transform.SetParent(panelRoot.transform, false);
+            countObj.transform.localPosition = new Vector3(0f, 0.17f, -0.012f);
+            countObj.transform.localRotation = Quaternion.identity;
+            countObj.transform.localScale = Vector3.one;
+
+            TextMeshPro countTmp = countObj.AddComponent<TextMeshPro>();
+            if (jpFont != null)
+            {
+                countTmp.font = jpFont;
+                countTmp.fontSharedMaterial = jpFont.material;
+            }
+            countTmp.text = "手札: 0枚";
+            countTmp.alignment = TextAlignmentOptions.Center;
+            countTmp.color = new Color(1.0f, 0.95f, 0.70f, 1.0f); // 視認性の高いウォームゴールド
+            countTmp.enableAutoSizing = true;
+            countTmp.fontSizeMin = 0.5f;
+            countTmp.fontSizeMax = 2.2f;
+            RectTransform countRt = countObj.GetComponent<RectTransform>();
+            if (countRt != null) countRt.sizeDelta = new Vector2(0.36f, 0.05f);
+
+            // HandArea に手札枚数TMPおよびTableManagerをバインド
+            if (handArea != null)
+            {
+                handArea.SetHandCountText(countTmp);
+                handArea.SetTableManager(tableManager);
+                SerializedObject soHand = new SerializedObject(handArea);
+                soHand.FindProperty("handCountText").objectReferenceValue = countTmp;
+                soHand.FindProperty("tableManager").objectReferenceValue = tableManager;
+                soHand.ApplyModifiedProperties();
+                UdonSharpEditorUtility.CopyProxyToUdon(handArea);
+            }
+
+            // ==========================================
+            // 1. 中段: 手札スクロールボタン (Y: +0.10f)
+            // ==========================================
+            // 1-A. 左側: < 前へボタン (Scroll_Prev_Button)
+            GameObject prevBtnObj = new GameObject("Scroll_Prev_Button");
+            prevBtnObj.transform.SetParent(panelRoot.transform, false);
+            prevBtnObj.transform.localPosition = new Vector3(-0.16f, 0.10f, 0f);
+            prevBtnObj.transform.localRotation = Quaternion.identity;
+            prevBtnObj.transform.localScale = Vector3.one;
+
+            BoxCollider prevCol = prevBtnObj.AddComponent<BoxCollider>();
+            prevCol.size = new Vector3(0.14f, 0.045f, 0.02f);
+            prevCol.center = Vector3.zero;
+
+            GameObject prevMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            prevMesh.name = "ButtonMesh";
+            prevMesh.transform.SetParent(prevBtnObj.transform, false);
+            prevMesh.transform.localPosition = Vector3.zero;
+            prevMesh.transform.localRotation = Quaternion.identity;
+            prevMesh.transform.localScale = new Vector3(0.14f, 0.045f, 0.02f);
+            Object.DestroyImmediate(prevMesh.GetComponent<Collider>());
+            prevMesh.GetComponent<MeshRenderer>().sharedMaterial = scrollMat;
+
+            HandScrollButton prevUdon = prevBtnObj.AddUdonSharpComponent<HandScrollButton>();
+            prevUdon.SetLinkedHandArea(handArea);
+            prevUdon.SetIsNext(false);
+            SerializedObject soPrevBtn = new SerializedObject(prevUdon);
+            soPrevBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
+            soPrevBtn.FindProperty("isNext").boolValue = false;
+            soPrevBtn.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(prevUdon);
+
+            UdonBehaviour udonPrevBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(prevUdon);
+            if (udonPrevBacking != null)
+            {
+                udonPrevBacking.interactText = "前ページへ (Prev)";
+            }
+
+            GameObject prevTextObj = new GameObject("Text");
+            prevTextObj.transform.SetParent(prevBtnObj.transform, false);
+            prevTextObj.transform.localPosition = new Vector3(0f, 0f, -0.012f);
+            prevTextObj.transform.localRotation = Quaternion.identity;
+            prevTextObj.transform.localScale = Vector3.one;
+            TextMeshPro prevTmp = prevTextObj.AddComponent<TextMeshPro>();
+            if (jpFont != null)
+            {
+                prevTmp.font = jpFont;
+                prevTmp.fontSharedMaterial = jpFont.material;
+            }
+            prevTmp.text = "< 前へ";
+            prevTmp.alignment = TextAlignmentOptions.Center;
+            prevTmp.color = Color.white;
+            prevTmp.enableAutoSizing = true;
+            prevTmp.fontSizeMin = 0.5f;
+            prevTmp.fontSizeMax = 2.0f;
+            RectTransform prevTextRt = prevTextObj.GetComponent<RectTransform>();
+            if (prevTextRt != null) prevTextRt.sizeDelta = new Vector2(0.14f, 0.045f);
+
+            // 1-B. 右側: 次へ >ボタン (Scroll_Next_Button)
+            GameObject nextBtnObj = new GameObject("Scroll_Next_Button");
+            nextBtnObj.transform.SetParent(panelRoot.transform, false);
+            nextBtnObj.transform.localPosition = new Vector3(0.16f, 0.10f, 0f);
+            nextBtnObj.transform.localRotation = Quaternion.identity;
+            nextBtnObj.transform.localScale = Vector3.one;
+
+            BoxCollider nextCol = nextBtnObj.AddComponent<BoxCollider>();
+            nextCol.size = new Vector3(0.14f, 0.045f, 0.02f);
+            nextCol.center = Vector3.zero;
+
+            GameObject nextMesh = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            nextMesh.name = "ButtonMesh";
+            nextMesh.transform.SetParent(nextBtnObj.transform, false);
+            nextMesh.transform.localPosition = Vector3.zero;
+            nextMesh.transform.localRotation = Quaternion.identity;
+            nextMesh.transform.localScale = new Vector3(0.14f, 0.045f, 0.02f);
+            Object.DestroyImmediate(nextMesh.GetComponent<Collider>());
+            nextMesh.GetComponent<MeshRenderer>().sharedMaterial = scrollMat;
+
+            HandScrollButton nextUdon = nextBtnObj.AddUdonSharpComponent<HandScrollButton>();
+            nextUdon.SetLinkedHandArea(handArea);
+            nextUdon.SetIsNext(true);
+            SerializedObject soNextBtn = new SerializedObject(nextUdon);
+            soNextBtn.FindProperty("linkedHandArea").objectReferenceValue = handArea;
+            soNextBtn.FindProperty("isNext").boolValue = true;
+            soNextBtn.ApplyModifiedProperties();
+            UdonSharpEditorUtility.CopyProxyToUdon(nextUdon);
+
+            UdonBehaviour udonNextBacking = UdonSharpEditorUtility.GetBackingUdonBehaviour(nextUdon);
+            if (udonNextBacking != null)
+            {
+                udonNextBacking.interactText = "次ページへ (Next)";
+            }
+
+            GameObject nextTextObj = new GameObject("Text");
+            nextTextObj.transform.SetParent(nextBtnObj.transform, false);
+            nextTextObj.transform.localPosition = new Vector3(0f, 0f, -0.012f);
+            nextTextObj.transform.localRotation = Quaternion.identity;
+            nextTextObj.transform.localScale = Vector3.one;
+            TextMeshPro nextTmp = nextTextObj.AddComponent<TextMeshPro>();
+            if (jpFont != null)
+            {
+                nextTmp.font = jpFont;
+                nextTmp.fontSharedMaterial = jpFont.material;
+            }
+            nextTmp.text = "次へ >";
+            nextTmp.alignment = TextAlignmentOptions.Center;
+            nextTmp.color = Color.white;
+            nextTmp.enableAutoSizing = true;
+            nextTmp.fontSizeMin = 0.5f;
+            nextTmp.fontSizeMax = 2.0f;
+            RectTransform nextTextRt = nextTextObj.GetComponent<RectTransform>();
+            if (nextTextRt != null) nextTextRt.sizeDelta = new Vector2(0.14f, 0.045f);
 
             // ==========================================
             // 1. 左側: 3Dドローボタン (Draw_Button)
